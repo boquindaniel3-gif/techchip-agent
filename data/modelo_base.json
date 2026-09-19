@@ -1,0 +1,29 @@
+{
+  "planta": "TechChip Systems S.A.",
+  "variables": [
+    "AI-Edge 1",
+    "AI-Server Pro",
+    "AI-Autonomous Car",
+    "AI-IoT LowPower",
+    "AI-Robotics Heavy",
+    "AI-Medical Vision"
+  ],
+  "recursos": [
+    "Litografía EUV (h-máquina)",
+    "Pruebas ATE (h-máquina)",
+    "Resina de Encapsulado Avanzado (kg)",
+    "Sustrato de Silicio Grado IA (m²)",
+    "Energía Eléctrica para Cortado Láser (MWh)",
+    "Inspección Óptica de Calidad (h-hombre)"
+  ],
+  "A": [
+    [2, 1, 3, 1, 2, 1],
+    [1, 3, 2, 1, 1, 2],
+    [3, 2, 4, 1, 3, 2],
+    [1, 1, 1, 4, 2, 1],
+    [2, 1, 2, 1, 5, 3],
+    [1, 2, 1, 2, 1, 4]
+  ],
+  "B": [185, 190, 280, 150, 245, 195],
+  "nota_modelado": "A contiene los consumos unitarios de la guía. B se calibró como A·X* con X*=(15, 20, 25, 10, 15, 20) para garantizar consistencia AX=B y la Prueba Base."
+}

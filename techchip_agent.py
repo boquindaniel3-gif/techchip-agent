@@ -1,0 +1,863 @@
+#!/usr/bin/env python3
+"""
+Agente autónomo de balance logístico y resolución matricial
+para TechChip Systems S.A.
+
+Resuelve el sistema AX = B de asignación de recursos (6 líneas de módulos
+procesadores vs 6 recursos críticos) mediante tres métodos algebraicos
+implementados de forma explícita:
+
+    1. Eliminación de Gauss (triangularización + sustitución hacia atrás)
+    2. Eliminación de Gauss-Jordan (reducción a [I | X])
+    3. Matriz inversa ( [A | I] -> [I | A^{-1}],  X = A^{-1} B )
+
+NumPy se emplea exclusivamente para el prediagnóstico de resolubilidad
+(determinante y rango). La aritmética de resolución no usa np.linalg.solve
+ni np.linalg.inv.
+
+Uso:
+    python techchip_agent.py
+    python techchip_agent.py --json data/modelo_base.json
+    python techchip_agent.py --interactive
+    python techchip_agent.py --stress
+    python techchip_agent.py --method gauss
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import math
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+
+# ---------------------------------------------------------------------------
+# Constantes numéricas e identidad del modelo industrial
+# ---------------------------------------------------------------------------
+
+EPSILON_PIVOTE = 1e-12
+EPSILON_DET = 1e-10
+EPSILON_RESIDUO = 1e-6
+EPSILON_CONSISTENCIA = 1e-8
+DECIMALES_TRAZA = 4
+
+# Vector exacto exigido por la Prueba Base de la guía del parcial.
+X_ESTRELLA = [15.0, 20.0, 25.0, 10.0, 15.0, 20.0]
+
+# Consumos unitarios (filas = recursos, columnas = módulos x1..x6).
+# Recurso 1: Litografía EUV
+# Recurso 2: Pruebas ATE
+# Recurso 3: Resina de encapsulado
+# Recurso 4: Sustrato de silicio
+# Recurso 5: Energía eléctrica (cortado láser)
+# Recurso 6: Inspección óptica
+A_BASE = [
+    [2.0, 1.0, 3.0, 1.0, 2.0, 1.0],
+    [1.0, 3.0, 2.0, 1.0, 1.0, 2.0],
+    [3.0, 2.0, 4.0, 1.0, 3.0, 2.0],
+    [1.0, 1.0, 1.0, 4.0, 2.0, 1.0],
+    [2.0, 1.0, 2.0, 1.0, 5.0, 3.0],
+    [1.0, 2.0, 1.0, 2.0, 1.0, 4.0],
+]
+
+# B = A · X*  (capacidades consistentes con el vector de operaciones exacto).
+# El B impreso en la guía no satisface A X* = B; se documenta en el JSON.
+B_BASE = [185.0, 190.0, 280.0, 150.0, 245.0, 195.0]
+
+VARIABLES_BASE = [
+    "AI-Edge 1",
+    "AI-Server Pro",
+    "AI-Autonomous Car",
+    "AI-IoT LowPower",
+    "AI-Robotics Heavy",
+    "AI-Medical Vision",
+]
+
+RECURSOS_BASE = [
+    "Litografía EUV (h-máquina)",
+    "Pruebas ATE (h-máquina)",
+    "Resina de Encapsulado Avanzado (kg)",
+    "Sustrato de Silicio Grado IA (m²)",
+    "Energía Eléctrica para Cortado Láser (MWh)",
+    "Inspección Óptica de Calidad (h-hombre)",
+]
+
+
+def _es_cero(valor: float, eps: float = EPSILON_PIVOTE) -> bool:
+    """Predicado de anulación numérica (pivotes / factores despreciables)."""
+    return abs(valor) < eps
+
+
+def _producto_matriz_vector(matriz: List[List[float]], vector: Sequence[float]) -> List[float]:
+    """Producto A·x implementado a mano (sin np.dot) para el cierre algebraico."""
+    n = len(matriz)
+    m = len(vector)
+    return [sum(matriz[i][j] * vector[j] for j in range(m)) for i in range(n)]
+
+
+def _norma_euclidea(vector: Sequence[float]) -> float:
+    return math.sqrt(sum(v * v for v in vector))
+
+
+def _formato_numero(valor: float, decimales: int = DECIMALES_TRAZA) -> str:
+    return f"{valor:.{decimales}f}"
+
+
+class SingularSystemError(Exception):
+    """El sistema no admite solución única (det(A) = 0 o pivote nulo)."""
+
+    def __init__(self, mensaje: str, diagnostico: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__(mensaje)
+        self.diagnostico = diagnostico or {}
+
+
+# ===========================================================================
+# Capa de entrada / salida
+# ===========================================================================
+
+
+class MatrixIO:
+    """
+    Carga dinámica de (A, B) desde JSON o consola.
+
+    Contrato JSON mínimo:
+        {
+          "A": [[...], ...],          # n x n
+          "B": [...],                 # n
+          "variables": ["..."],       # opcional, n nombres
+          "recursos": ["..."]         # opcional, n nombres
+        }
+    """
+
+    @staticmethod
+    def modelo_embebido() -> Dict[str, Any]:
+        """Modelo 6x6 de planta calibrado para X* = (15, 20, 25, 10, 15, 20)."""
+        return {
+            "planta": "TechChip Systems S.A.",
+            "variables": list(VARIABLES_BASE),
+            "recursos": list(RECURSOS_BASE),
+            "A": copy.deepcopy(A_BASE),
+            "B": list(B_BASE),
+        }
+
+    @staticmethod
+    def cargar_json(ruta: str) -> Dict[str, Any]:
+        with open(ruta, "r", encoding="utf-8") as archivo:
+            datos = json.load(archivo)
+        if "A" not in datos or "B" not in datos:
+            raise ValueError("El JSON debe contener las claves 'A' y 'B'.")
+        datos["A"] = [[float(c) for c in fila] for fila in datos["A"]]
+        datos["B"] = [float(c) for c in datos["B"]]
+        return datos
+
+    @staticmethod
+    def cargar_consola() -> Dict[str, Any]:
+        """Entrada interactiva: orden n, n filas de A y el vector B."""
+        print("=== Entrada dinámica del sistema AX = B ===")
+        n = int(input("Orden n de la matriz A (n x n): ").strip())
+        if n <= 0:
+            raise ValueError("El orden n debe ser un entero positivo.")
+
+        print(f"Ingrese las {n} filas de A ({n} coeficientes separados por espacio):")
+        matriz_a: List[List[float]] = []
+        for i in range(n):
+            coeficientes = input(f"  Fila {i + 1}: ").split()
+            if len(coeficientes) != n:
+                raise ValueError(f"La fila {i + 1} debe tener exactamente {n} entradas.")
+            matriz_a.append([float(c) for c in coeficientes])
+
+        print(f"Ingrese el vector B ({n} disponibilidades separadas por espacio):")
+        vector_b = [float(c) for c in input("  B: ").split()]
+        if len(vector_b) != n:
+            raise ValueError(f"B debe tener exactamente {n} entradas.")
+
+        variables = [f"x{i + 1}" for i in range(n)]
+        recursos = [f"Recurso {i + 1}" for i in range(n)]
+        return {
+            "planta": "entrada-consola",
+            "variables": variables,
+            "recursos": recursos,
+            "A": matriz_a,
+            "B": vector_b,
+        }
+
+
+# ===========================================================================
+# Prediagnóstico de resolubilidad (único punto de uso de NumPy)
+# ===========================================================================
+
+
+class SystemValidator:
+    """
+    Verifica consistencia dimensional y clasifica el sistema lineal.
+
+    NumPy se restringe a det(A) y rank(A) / rank([A|B]) como filtro previo
+    a los algoritmos de eliminación implementados a mano.
+    """
+
+    def __init__(self, matriz_a: List[List[float]], vector_b: Sequence[float]) -> None:
+        self.A = matriz_a
+        self.B = list(vector_b)
+
+    def validar_dimensiones(self) -> int:
+        if not self.A:
+            raise ValueError("La matriz A está vacía.")
+        n = len(self.A)
+        for i, fila in enumerate(self.A):
+            if len(fila) != n:
+                raise ValueError(
+                    f"Inconsistencia dimensional: A debe ser n x n. "
+                    f"La fila {i + 1} tiene {len(fila)} columnas (n = {n})."
+                )
+        if len(self.B) != n:
+            raise ValueError(
+                f"Inconsistencia dimensional: B tiene {len(self.B)} entradas y A es {n} x {n}."
+            )
+        return n
+
+    def prediagnostico(self) -> Dict[str, Any]:
+        """
+        Calcula det(A), rank(A) y rank([A|B]).
+
+        Si |det(A)| < EPSILON_DET el sistema no es unisolvente:
+            rank(A) < rank([A|B])  -> incompatible (cero soluciones)
+            rank(A) = rank([A|B]) < n -> compatible indeterminado (infinitas)
+        """
+        n = self.validar_dimensiones()
+        a_np = np.array(self.A, dtype=float)
+        b_np = np.array(self.B, dtype=float).reshape(n, 1)
+        aumentada = np.hstack((a_np, b_np))
+
+        determinante = float(np.linalg.det(a_np))
+        rango_a = int(np.linalg.matrix_rank(a_np, tol=EPSILON_DET))
+        rango_aumentada = int(np.linalg.matrix_rank(aumentada, tol=EPSILON_DET))
+        singular = abs(determinante) < EPSILON_DET
+
+        if not singular:
+            clasificacion = "determinado"
+            mensaje = (
+                f"Sistema determinado: det(A) = {determinante:.6f} ≠ 0, "
+                f"rank(A) = {rango_a} = n = {n}. Existe solución única."
+            )
+        elif rango_a < rango_aumentada:
+            clasificacion = "incompatible"
+            mensaje = (
+                "Alerta de Singularidad: det(A) = 0. "
+                "Diagnóstico: Sistema Incompatible. Cero soluciones posibles "
+                f"(rank(A) = {rango_a} < rank([A|B]) = {rango_aumentada})."
+            )
+        else:
+            clasificacion = "indeterminado"
+            mensaje = (
+                "Alerta de Singularidad: det(A) = 0. "
+                "Diagnóstico: Sistema compatible indeterminado. Infinitas soluciones "
+                f"(rank(A) = rank([A|B]) = {rango_a} < n = {n})."
+            )
+
+        return {
+            "n": n,
+            "determinante": determinante,
+            "rango_A": rango_a,
+            "rango_aumentada": rango_aumentada,
+            "singular": singular,
+            "clasificacion": clasificacion,
+            "mensaje": mensaje,
+        }
+
+
+# ===========================================================================
+# Trazabilidad analítica de operaciones elementales de fila
+# ===========================================================================
+
+
+class RowOperationTracer:
+    """
+    Bitácora de operaciones F_i <- F_i - m * F_k (indexación 1-basada),
+    conforme al formato exigido por la guía del parcial.
+    """
+
+    def __init__(self, activo: bool = True) -> None:
+        self.activo = activo
+        self.historial: List[str] = []
+
+    def _emitir(self, texto: str) -> None:
+        self.historial.append(texto)
+        if self.activo:
+            print(texto)
+
+    def encabezado(self, titulo: str) -> None:
+        linea = "=" * 72
+        self._emitir(f"\n{linea}\n{titulo}\n{linea}")
+
+    def _lineas_matriz(self, matriz: List[List[float]], columnas_izquierdas: int) -> List[str]:
+        lineas: List[str] = []
+        for fila in matriz:
+            izquierda = " ".join(f"{v:10.{DECIMALES_TRAZA}f}" for v in fila[:columnas_izquierdas])
+            derecha = " ".join(f"{v:10.{DECIMALES_TRAZA}f}" for v in fila[columnas_izquierdas:])
+            lineas.append(f"[ {izquierda} | {derecha} ]")
+        return lineas
+
+    def imprimir_matriz(self, matriz: List[List[float]], columnas_izquierdas: int) -> None:
+        for linea in self._lineas_matriz(matriz, columnas_izquierdas):
+            self._emitir(linea)
+
+    def intercambio(self, i: int, j: int, matriz: List[List[float]], n_izq: int) -> None:
+        self._emitir(f"Operación analítica: F_{i + 1} <-> F_{j + 1}  (pivoteo parcial)")
+        self.imprimir_matriz(matriz, n_izq)
+
+    def escalado(self, i: int, factor: float, matriz: List[List[float]], n_izq: int) -> None:
+        self._emitir(
+            f"Operación analítica: F_{i + 1} <- ({_formato_numero(factor)}) * F_{i + 1}"
+        )
+        self.imprimir_matriz(matriz, n_izq)
+
+    def eliminacion(
+        self, i: int, k: int, multiplicador: float, matriz: List[List[float]], n_izq: int
+    ) -> None:
+        self._emitir(
+            f"Operación analítica: F_{i + 1} <- F_{i + 1} - ({_formato_numero(multiplicador)}) * F_{k + 1}"
+        )
+        self.imprimir_matriz(matriz, n_izq)
+
+    def comentario(self, texto: str) -> None:
+        self._emitir(texto)
+
+
+# ===========================================================================
+# Núcleo algebraico (sin librerías black-box de resolución)
+# ===========================================================================
+
+
+class LinearSolvers:
+    """
+    Tres realizaciones equivalentes de la solución de AX = B.
+
+    Invariante de implementación:
+        - copias profundas (el modelo original no se muta)
+        - pivoteo parcial por columna
+        - aritmética sobre List[List[float]]
+        - aborto si el pivote cae bajo EPSILON_PIVOTE
+    """
+
+    def __init__(self, tracer: Optional[RowOperationTracer] = None) -> None:
+        self.tracer = tracer or RowOperationTracer(activo=True)
+
+    def _pivote_parcial(
+        self, matriz: List[List[float]], k: int, n: int, columnas_izq: int
+    ) -> None:
+        """Intercambia la fila k con la de mayor |a_ik| para k <= i < n."""
+        indice_pivote = max(range(k, n), key=lambda i: abs(matriz[i][k]))
+        if _es_cero(matriz[indice_pivote][k]):
+            raise SingularSystemError(
+                f"Pivote nulo en la columna {k + 1}. El sistema es singular a precisión de máquina."
+            )
+        if indice_pivote != k:
+            matriz[k], matriz[indice_pivote] = matriz[indice_pivote], matriz[k]
+            self.tracer.intercambio(k, indice_pivote, matriz, columnas_izq)
+
+    def gauss(self, matriz_a: List[List[float]], vector_b: Sequence[float]) -> List[float]:
+        """
+        Eliminación de Gauss: [A | B] -> [U | c] (triangular superior)
+        y resolución por sustitución hacia atrás.
+        """
+        n = len(matriz_a)
+        aumentada = [matriz_a[i][:] + [float(vector_b[i])] for i in range(n)]
+        self.tracer.encabezado("MÉTODO 1 — Eliminación de Gauss")
+        self.tracer.comentario("Matriz aumentada inicial [A | B]:")
+        self.tracer.imprimir_matriz(aumentada, n)
+
+        for k in range(n):
+            self._pivote_parcial(aumentada, k, n, n)
+            pivote = aumentada[k][k]
+            for i in range(k + 1, n):
+                if _es_cero(aumentada[i][k]):
+                    continue
+                multiplicador = aumentada[i][k] / pivote
+                for j in range(k, n + 1):
+                    aumentada[i][j] -= multiplicador * aumentada[k][j]
+                self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
+
+        self.tracer.comentario("\nMatriz triangular superior [U | c]. Sustitución hacia atrás:")
+        solucion = [0.0] * n
+        for i in range(n - 1, -1, -1):
+            acumulado = aumentada[i][n] - sum(
+                aumentada[i][j] * solucion[j] for j in range(i + 1, n)
+            )
+            if _es_cero(aumentada[i][i]):
+                raise SingularSystemError("División por pivote nulo en la sustitución hacia atrás.")
+            solucion[i] = acumulado / aumentada[i][i]
+            self.tracer.comentario(
+                f"  x_{i + 1} = { _formato_numero(solucion[i], 6) }"
+            )
+        return solucion
+
+    def gauss_jordan(self, matriz_a: List[List[float]], vector_b: Sequence[float]) -> List[float]:
+        """
+        Gauss-Jordan con pivoteo: reduce [A | B] a [I | X]
+        mediante eliminación superior e inferior y normalización del pivote.
+        """
+        n = len(matriz_a)
+        aumentada = [matriz_a[i][:] + [float(vector_b[i])] for i in range(n)]
+        self.tracer.encabezado("MÉTODO 2 — Eliminación de Gauss-Jordan")
+        self.tracer.comentario("Matriz aumentada inicial [A | B]:")
+        self.tracer.imprimir_matriz(aumentada, n)
+
+        for k in range(n):
+            self._pivote_parcial(aumentada, k, n, n)
+            pivote = aumentada[k][k]
+            inverso = 1.0 / pivote
+            for j in range(n + 1):
+                aumentada[k][j] *= inverso
+            self.tracer.escalado(k, inverso, aumentada, n)
+
+            for i in range(n):
+                if i == k or _es_cero(aumentada[i][k]):
+                    continue
+                multiplicador = aumentada[i][k]
+                for j in range(n + 1):
+                    aumentada[i][j] -= multiplicador * aumentada[k][j]
+                self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
+
+        self.tracer.comentario("\nForma reducida [I | X]:")
+        self.tracer.imprimir_matriz(aumentada, n)
+        return [aumentada[i][n] for i in range(n)]
+
+    def inversa(
+        self, matriz_a: List[List[float]], vector_b: Sequence[float]
+    ) -> Tuple[List[float], List[List[float]]]:
+        """
+        Cálculo de A^{-1} por Gauss-Jordan sobre [A | I] y evaluación
+        X = A^{-1} B con producto matriz-vector manual.
+        """
+        n = len(matriz_a)
+        aumentada = [
+            matriz_a[i][:] + [1.0 if i == j else 0.0 for j in range(n)] for i in range(n)
+        ]
+        self.tracer.encabezado("MÉTODO 3 — Matriz inversa  (X = A^{-1} B)")
+        self.tracer.comentario("Matriz aumentada inicial [A | I]:")
+        self.tracer.imprimir_matriz(aumentada, n)
+
+        for k in range(n):
+            self._pivote_parcial(aumentada, k, n, n)
+            pivote = aumentada[k][k]
+            inverso = 1.0 / pivote
+            for j in range(2 * n):
+                aumentada[k][j] *= inverso
+            self.tracer.escalado(k, inverso, aumentada, n)
+
+            for i in range(n):
+                if i == k or _es_cero(aumentada[i][k]):
+                    continue
+                multiplicador = aumentada[i][k]
+                for j in range(2 * n):
+                    aumentada[i][j] -= multiplicador * aumentada[k][j]
+                self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
+
+        inversa_a = [aumentada[i][n:] for i in range(n)]
+        self.tracer.comentario("\nMatriz inversa A^{-1}:")
+        for fila in inversa_a:
+            self.tracer.comentario(
+                "  [" + " ".join(f"{v:10.{DECIMALES_TRAZA}f}" for v in fila) + " ]"
+            )
+
+        solucion = _producto_matriz_vector(inversa_a, vector_b)
+        self.tracer.comentario("Evaluación X = A^{-1} B:")
+        for i, xi in enumerate(solucion):
+            self.tracer.comentario(f"  x_{i + 1} = {_formato_numero(xi, 6)}")
+        return solucion, inversa_a
+
+
+# ===========================================================================
+# Interpretación semántica (lenguaje de operaciones de planta)
+# ===========================================================================
+
+
+class OperationsInterpreter:
+    """Traduce el vector X a un plan de producción y detecta escasez."""
+
+    def __init__(
+        self,
+        variables: Sequence[str],
+        recursos: Sequence[str],
+        planta: str = "TechChip Systems S.A.",
+    ) -> None:
+        self.variables = list(variables)
+        self.recursos = list(recursos)
+        self.planta = planta
+
+    def interpretar(self, vector_x: Sequence[float]) -> Dict[str, Any]:
+        negativos = [
+            (i, float(vector_x[i]), self.variables[i] if i < len(self.variables) else f"x{i + 1}")
+            for i in range(len(vector_x))
+            if vector_x[i] < -EPSILON_CONSISTENCIA
+        ]
+        lineas_plan = []
+        for i, xi in enumerate(vector_x):
+            nombre = self.variables[i] if i < len(self.variables) else f"x{i + 1}"
+            lineas_plan.append(
+                f"  x_{i + 1}  {nombre}: {xi:.6f} miles de unidades / turno"
+            )
+
+        negativos_json = [
+            {"indice": i, "valor": valor, "nombre": nombre} for i, valor, nombre in negativos
+        ]
+        if negativos:
+            detalle = ", ".join(
+                f"x_{i + 1} ({nombre}) = {valor:.4f}" for i, valor, nombre in negativos
+            )
+            alerta = (
+                "Alerta: Plan de producción inalcanzable por restricción de materias primas "
+                "(se detectaron cuotas de producción negativas)."
+            )
+            mensaje = (
+                f"{alerta}\n"
+                f"Variables no factibles: {detalle}.\n"
+                "Implicación operativa: el vector de disponibilidades B no admite un mix "
+                "de módulos no negativo que agote exactamente la capacidad instalada. "
+                "Se requiere relajar el recurso cuello de botella o redefinir el mix."
+            )
+            factible = False
+        else:
+            mensaje = (
+                f"Plan factible para {self.planta}: las seis líneas operan con cuotas "
+                "no negativas y el mix consume el 100% de la capacidad modelada en B "
+                "(cero holguras, cero cuellos de botella en el sentido AX = B)."
+            )
+            factible = True
+
+        return {
+            "factible": factible,
+            "negativos": negativos_json,
+            "lineas_plan": lineas_plan,
+            "mensaje": mensaje,
+        }
+
+    def imprimir(self, resultado: Dict[str, Any]) -> None:
+        print("\n" + "-" * 72)
+        print("INTERPRETACIÓN OPERATIVA — TechChip Systems S.A.")
+        print("-" * 72)
+        print("Plan de producción (miles de unidades por turno):")
+        for linea in resultado["lineas_plan"]:
+            print(linea)
+        print()
+        print(resultado["mensaje"])
+
+
+# ===========================================================================
+# Fachada del agente
+# ===========================================================================
+
+
+class TechChipAgent:
+    """
+    Agente autónomo para el balance logístico y procesamiento matricial
+    de TechChip Systems S.A.
+
+    Orquesta: carga -> validación dimensional/espectral -> resolución
+    multimétodo -> verificación AX - B -> semántica de planta.
+    """
+
+    def __init__(self, json_path: Optional[str] = None, modelo: Optional[Dict[str, Any]] = None) -> None:
+        if modelo is not None:
+            self.modelo = modelo
+        elif json_path:
+            self.modelo = MatrixIO.cargar_json(json_path)
+        else:
+            self.modelo = MatrixIO.modelo_embebido()
+
+        self.A: List[List[float]] = copy.deepcopy(self.modelo["A"])
+        self.B: List[float] = list(self.modelo["B"])
+        self.variables: List[str] = list(
+            self.modelo.get("variables") or [f"x{i + 1}" for i in range(len(self.A))]
+        )
+        self.recursos: List[str] = list(
+            self.modelo.get("recursos") or [f"Recurso {i + 1}" for i in range(len(self.A))]
+        )
+        self.planta: str = str(self.modelo.get("planta", "TechChip Systems S.A."))
+
+    def validar(self) -> Dict[str, Any]:
+        return SystemValidator(self.A, self.B).prediagnostico()
+
+    def residual(self, vector_x: Sequence[float]) -> Dict[str, float]:
+        ax = _producto_matriz_vector(self.A, vector_x)
+        error = [ax[i] - self.B[i] for i in range(len(self.B))]
+        return {
+            "norma_euclidea": _norma_euclidea(error),
+            "norma_inf": max(abs(e) for e in error) if error else 0.0,
+        }
+
+    def resolver(
+        self,
+        method: str = "all",
+        verbose: bool = True,
+        trazar: Optional[bool] = None,
+        abortar_si_singular: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Ejecuta el pipeline completo.
+
+        method: 'all' | 'gauss' | 'gauss-jordan' | 'inversa'
+        verbose: imprime diagnóstico, residuos e interpretación.
+        trazar: imprime cada operación de fila; por defecto sigue a verbose.
+        """
+        emitir_traza = verbose if trazar is None else trazar
+        diagnostico = self.validar()
+        if verbose:
+            print("\n" + "#" * 72)
+            print(f"AGENTE TECHCHIP  |  {self.planta}")
+            print("#" * 72)
+            print(f"det(A)            = {diagnostico['determinante']:.10f}")
+            print(f"rank(A)           = {diagnostico['rango_A']}")
+            print(f"rank([A|B])       = {diagnostico['rango_aumentada']}")
+            print(f"Clasificación     = {diagnostico['clasificacion']}")
+            print(diagnostico["mensaje"])
+
+        if diagnostico["singular"]:
+            if verbose:
+                print("\nProceso detenido: no se ejecutan Gauss / Gauss-Jordan / inversa.")
+            if abortar_si_singular:
+                raise SingularSystemError(diagnostico["mensaje"], diagnostico)
+            return {
+                "diagnostico": diagnostico,
+                "abortado": True,
+                "soluciones": {},
+                "traza": [],
+                "metodo": method.lower(),
+                "A": copy.deepcopy(self.A),
+                "B": list(self.B),
+                "variables": list(self.variables),
+                "recursos": list(self.recursos),
+            }
+
+        tracer = RowOperationTracer(activo=emitir_traza)
+        solvers = LinearSolvers(tracer)
+        metodo = method.lower()
+        soluciones: Dict[str, List[float]] = {}
+
+        if metodo in ("all", "gauss"):
+            soluciones["gauss"] = solvers.gauss(self.A, self.B)
+        if metodo in ("all", "gauss-jordan"):
+            soluciones["gauss-jordan"] = solvers.gauss_jordan(self.A, self.B)
+        if metodo in ("all", "inversa"):
+            x_inv, _inversa_a = solvers.inversa(self.A, self.B)
+            soluciones["inversa"] = x_inv
+
+        referencia = next(iter(soluciones.values()))
+        residuos = {nombre: self.residual(x) for nombre, x in soluciones.items()}
+        sesgos = {
+            nombre: max(abs(soluciones[nombre][i] - referencia[i]) for i in range(len(referencia)))
+            for nombre in soluciones
+        }
+
+        interprete = OperationsInterpreter(self.variables, self.recursos, self.planta)
+        semantica = interprete.interpretar(referencia)
+        if verbose:
+            print("\n" + "=" * 72)
+            print("VERIFICACIÓN INTER-MÉTODO Y RESIDUO")
+            print("=" * 72)
+            for nombre, x in soluciones.items():
+                r = residuos[nombre]
+                print(
+                    f"  {nombre:14s}  X = {[round(v, 6) for v in x]}  "
+                    f"||AX-B||_2 = {r['norma_euclidea']:.3e}"
+                )
+            print(f"  Desviación máxima entre métodos: {max(sesgos.values()):.3e}")
+            interprete.imprimir(semantica)
+
+        return {
+            "diagnostico": diagnostico,
+            "abortado": False,
+            "soluciones": soluciones,
+            "residuos": residuos,
+            "sesgos": sesgos,
+            "semantica": semantica,
+            "x": referencia,
+            "traza": list(tracer.historial),
+            "metodo": metodo,
+            "A": copy.deepcopy(self.A),
+            "B": list(self.B),
+            "variables": list(self.variables),
+            "recursos": list(self.recursos),
+        }
+
+
+# ===========================================================================
+# Pruebas de validación y escenarios extremos (guía del parcial)
+# ===========================================================================
+
+
+class StressSuite:
+    """Cuatro escenarios de estrés exigidos por la rúbrica del parcial."""
+
+    X_ESPERADO = list(X_ESTRELLA)
+
+    def __init__(self, imprimir: bool = True) -> None:
+        self.resultados: List[Dict[str, Any]] = []
+        self.imprimir = imprimir
+
+    def _registrar(self, nombre: str, ok: bool, detalle: str) -> None:
+        estado = "PASS" if ok else "FAIL"
+        self.resultados.append({"nombre": nombre, "ok": ok, "detalle": detalle, "estado": estado})
+        if self.imprimir:
+            print(f"[{estado}] {nombre}: {detalle}")
+
+    def prueba_base(self) -> None:
+        agente = TechChipAgent()
+        resultado = agente.resolver(method="all", verbose=False)
+        ok = True
+        detalle_partes = []
+        for nombre, x in resultado["soluciones"].items():
+            desvio = max(abs(x[i] - self.X_ESPERADO[i]) for i in range(6))
+            cumple = desvio < EPSILON_RESIDUO
+            ok = ok and cumple
+            detalle_partes.append(f"{nombre} max|ΔX|={desvio:.3e}")
+        self._registrar(
+            "1. Prueba Base  X* = (15, 20, 25, 10, 15, 20)",
+            ok,
+            "; ".join(detalle_partes),
+        )
+
+    def prueba_sustitucion(self) -> None:
+        agente = TechChipAgent()
+        resultado = agente.resolver(method="all", verbose=False)
+        normas = {n: r["norma_euclidea"] for n, r in resultado["residuos"].items()}
+        ok = all(v < EPSILON_RESIDUO for v in normas.values())
+        detalle = ", ".join(f"{n} ||AX-B||={v:.3e}" for n, v in normas.items())
+        self._registrar("2. Sustitución directa  ||AX-B|| < 1e-6", ok, detalle)
+
+    def prueba_escasez(self) -> None:
+        modelo = MatrixIO.modelo_embebido()
+        modelo["B"][2] = 100.0  # Resina reducida a 100 kg (índice 0-basado 2)
+        agente = TechChipAgent(modelo=modelo)
+        resultado = agente.resolver(method="gauss-jordan", verbose=False)
+        semantica = resultado["semantica"]
+        ok = (not semantica["factible"]) and len(semantica["negativos"]) > 0
+        x = resultado["x"]
+        self._registrar(
+            "3. Escenario de Escasez  B3 = 100 kg",
+            ok,
+            f"X={[round(v, 4) for v in x]}  factible={semantica['factible']}",
+        )
+        if self.imprimir:
+            print("        " + semantica["mensaje"].split("\n")[0])
+
+    def prueba_degenerado(self) -> None:
+        modelo = MatrixIO.modelo_embebido()
+        # F_6 <- 2 F_1  (combinación lineal exacta de filas de A; B no se altera)
+        modelo["A"][5] = [2.0 * c for c in modelo["A"][0]]
+        agente = TechChipAgent(modelo=modelo)
+        try:
+            agente.resolver(method="all", verbose=False)
+            self._registrar(
+                "4. Escenario Degenerado  F6 = 2 F1",
+                False,
+                "El agente no abortó pese a det(A) = 0.",
+            )
+        except SingularSystemError as error:
+            diag = error.diagnostico
+            ok = (
+                bool(diag.get("singular"))
+                and diag.get("clasificacion") in {"incompatible", "indeterminado"}
+            )
+            self._registrar(
+                "4. Escenario Degenerado  F6 = 2 F1",
+                ok,
+                diag.get("mensaje", str(error)),
+            )
+
+    def ejecutar(self) -> int:
+        resumen = self.ejecutar_detalle()
+        return 0 if resumen["exitoso"] else 1
+
+    def ejecutar_detalle(self) -> Dict[str, Any]:
+        if self.imprimir:
+            print("\n" + "#" * 72)
+            print("SUITE DE PRUEBAS DE ESTRÉS — TechChip Systems S.A.")
+            print("#" * 72)
+        self.prueba_base()
+        self.prueba_sustitucion()
+        self.prueba_escasez()
+        self.prueba_degenerado()
+        total = len(self.resultados)
+        aprobadas = sum(1 for r in self.resultados if r["ok"])
+        if self.imprimir:
+            print("-" * 72)
+            print(f"Resultado global: {aprobadas}/{total} pruebas satisfactorias.")
+        return {
+            "total": total,
+            "aprobadas": aprobadas,
+            "exitoso": aprobadas == total,
+            "resultados": list(self.resultados),
+        }
+
+
+# ===========================================================================
+# Interfaz de línea de comandos
+# ===========================================================================
+
+
+def _construir_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Agente autónomo TechChip Systems S.A. — resolución paso a paso "
+            "de AX = B (Gauss, Gauss-Jordan, inversa)."
+        )
+    )
+    parser.add_argument(
+        "--json",
+        dest="json_path",
+        default=None,
+        help="Ruta a un archivo JSON con claves A y B (y opcionalmente variables/recursos).",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Capturar A y B desde la consola.",
+    )
+    parser.add_argument(
+        "--stress",
+        action="store_true",
+        help="Ejecutar las cuatro pruebas de estrés de la guía del parcial.",
+    )
+    parser.add_argument(
+        "--method",
+        choices=["all", "gauss", "gauss-jordan", "inversa"],
+        default="all",
+        help="Algoritmo de resolución (por defecto: all).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suprime la traza analítica de filas (solo resumen).",
+    )
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = _construir_parser().parse_args(argv)
+
+    if args.stress:
+        return StressSuite().ejecutar()
+
+    try:
+        if args.interactive:
+            modelo = MatrixIO.cargar_consola()
+            agente = TechChipAgent(modelo=modelo)
+        else:
+            agente = TechChipAgent(json_path=args.json_path)
+        agente.resolver(method=args.method, verbose=True, trazar=not args.quiet)
+        return 0
+    except SingularSystemError as error:
+        print("\nProceso abortado por singularidad.")
+        print(str(error))
+        return 2
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"Error de entrada: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
