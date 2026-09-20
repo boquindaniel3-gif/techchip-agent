@@ -382,6 +382,146 @@ class SystemValidator:
         }
 
 
+def _rref_aumentada(
+    matriz_a: List[List[float]], vector_b: Sequence[float]
+) -> Tuple[List[List[float]], List[int]]:
+    """
+    Reduce [A | B] a forma escalonada reducida por filas, a mano.
+
+    Si una columna no tiene pivote, se deja libre (no aborta).
+    Las k-ésima columna pivote queda en la fila k.
+    """
+    n = len(matriz_a)
+    aumentada = [matriz_a[i][:] + [float(vector_b[i])] for i in range(n)]
+    columnas_pivote: List[int] = []
+    fila = 0
+    for col in range(n):
+        if fila >= n:
+            break
+
+        def puntuacion(i: int, columna: int = col) -> float:
+            escala = max((abs(aumentada[i][j]) for j in range(columna, n)), default=0.0)
+            if escala == 0.0:
+                return 0.0
+            return abs(aumentada[i][columna]) / escala
+
+        mejor = max(range(fila, n), key=puntuacion)
+        if _es_cero(aumentada[mejor][col]):
+            continue
+        if mejor != fila:
+            aumentada[fila], aumentada[mejor] = aumentada[mejor], aumentada[fila]
+        inverso = 1.0 / aumentada[fila][col]
+        for j in range(n + 1):
+            aumentada[fila][j] *= inverso
+        for i in range(n):
+            if i == fila or _es_cero(aumentada[i][col]):
+                continue
+            multiplicador = aumentada[i][col]
+            for j in range(n + 1):
+                aumentada[i][j] -= multiplicador * aumentada[fila][j]
+        for i in range(n):
+            for j in range(n + 1):
+                if _es_cero(aumentada[i][j]):
+                    aumentada[i][j] = 0.0
+        columnas_pivote.append(col)
+        fila += 1
+    return aumentada, columnas_pivote
+
+
+def analizar_familia(
+    matriz_a: List[List[float]],
+    vector_b: Sequence[float],
+    variables: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Familia de soluciones de AX = B cuando A es singular.
+
+    incompatible  -> x_particular = None, contradicciones en la RREF
+    indeterminado -> X = X_p + Σ t_k v_k  (núcleo a mano)
+    """
+    n = len(matriz_a)
+    nombres = alinear_etiquetas(variables, n, "x{i}")
+    aumentada, columnas_pivote = _rref_aumentada(matriz_a, vector_b)
+    set_pivotes = set(columnas_pivote)
+    libres = [j for j in range(n) if j not in set_pivotes]
+    libres_nombres = [nombres[j] for j in libres]
+
+    contradicciones: List[Dict[str, Any]] = []
+    for i in range(n):
+        fila_nula = all(_es_cero(aumentada[i][j]) for j in range(n))
+        if fila_nula and not _es_cero(aumentada[i][n]):
+            contradicciones.append(
+                {"fila_rref": i + 1, "residuo": float(aumentada[i][n])}
+            )
+
+    if contradicciones:
+        return {
+            "compatible": False,
+            "grados_libertad": 0,
+            "pivotes": [c + 1 for c in columnas_pivote],
+            "libres": [c + 1 for c in libres],
+            "libres_nombres": libres_nombres,
+            "x_particular": None,
+            "base_nula": [],
+            "contradicciones": contradicciones,
+            "parametros": [],
+            "lineas": [],
+            "expresion": (
+                "No hay combinaciones posibles: el sistema es incompatible "
+                f"({len(contradicciones)} fila(s) contradictoria(s) en la RREF)."
+            ),
+        }
+
+    x_particular = [0.0] * n
+    for k, col in enumerate(columnas_pivote):
+        x_particular[col] = float(aumentada[k][n])
+
+    base_nula: List[List[float]] = []
+    for libre in libres:
+        vector = [0.0] * n
+        vector[libre] = 1.0
+        for k, col in enumerate(columnas_pivote):
+            vector[col] = -float(aumentada[k][libre])
+        base_nula.append(vector)
+
+    parametros = [f"t{k + 1}" for k in range(len(libres))]
+    lineas: List[str] = []
+    for i in range(n):
+        partes = [_formato_numero(x_particular[i], 6)]
+        for k, vector in enumerate(base_nula):
+            coef = vector[i]
+            if _es_cero(coef):
+                continue
+            signo = "+" if coef > 0 else "-"
+            partes.append(f"{signo} {_formato_numero(abs(coef), 6)} {parametros[k]}")
+        lineas.append(f"x_{i + 1} ({nombres[i]}) = {' '.join(partes)}")
+
+    if not libres:
+        expresion = "Solución única (no hay variables libres)."
+    else:
+        pares = ", ".join(
+            f"{parametros[k]} ↔ {libres_nombres[k]}" for k in range(len(libres))
+        )
+        expresion = (
+            f"Infinitas combinaciones: {len(libres)} grado(s) de libertad ({pares}). "
+            + " | ".join(lineas)
+        )
+
+    return {
+        "compatible": True,
+        "grados_libertad": len(libres),
+        "pivotes": [c + 1 for c in columnas_pivote],
+        "libres": [c + 1 for c in libres],
+        "libres_nombres": libres_nombres,
+        "x_particular": x_particular,
+        "base_nula": base_nula,
+        "contradicciones": [],
+        "parametros": parametros,
+        "lineas": lineas,
+        "expresion": expresion,
+    }
+
+
 # ===========================================================================
 # Trazabilidad analítica de operaciones elementales de fila
 # ===========================================================================
@@ -635,9 +775,7 @@ class OperationsInterpreter:
         lineas_plan = []
         for i, xi in enumerate(vector_x):
             nombre = self.variables[i] if i < len(self.variables) else f"x{i + 1}"
-            lineas_plan.append(
-                f"  x_{i + 1}  {nombre}: {xi:.6f} miles de unidades / turno"
-            )
+            lineas_plan.append(f"  x_{i + 1}  {nombre}: {xi:.6f}")
 
         consumo = (
             _producto_matriz_vector(matriz_a, vector_x)
@@ -727,7 +865,7 @@ class OperationsInterpreter:
         print("\n" + "-" * 72)
         print("INTERPRETACIÓN OPERATIVA — TechChip Systems S.A.")
         print("-" * 72)
-        print("Plan de producción (miles de unidades por turno):")
+        print("Valores de x_i:")
         for linea in resultado["lineas_plan"]:
             print(linea)
         print()
@@ -789,6 +927,21 @@ class TechChipAgent:
         """
         emitir_traza = verbose if trazar is None else trazar
         diagnostico = self.validar()
+        if diagnostico["singular"]:
+            familia = analizar_familia(self.A, self.B, self.variables)
+            diagnostico["familia"] = familia
+            if familia.get("compatible"):
+                diagnostico["mensaje"] = (
+                    "Alerta de Singularidad: rank(A) < n. "
+                    "Diagnóstico: Sistema compatible indeterminado. "
+                    f"{familia['expresion']}"
+                )
+            else:
+                diagnostico["mensaje"] = (
+                    "Alerta de Singularidad: rank(A) < n. "
+                    "Diagnóstico: Sistema Incompatible. "
+                    f"{familia['expresion']}"
+                )
         if verbose:
             print("\n" + "#" * 72)
             print(f"AGENTE TECHCHIP  |  {self.planta}")
@@ -802,6 +955,8 @@ class TechChipAgent:
         if diagnostico["singular"]:
             if verbose:
                 print("\nProceso detenido: no se ejecutan Gauss / Gauss-Jordan / inversa.")
+                for linea in (diagnostico.get("familia") or {}).get("lineas") or []:
+                    print(f"  {linea}")
             if abortar_si_singular:
                 raise SingularSystemError(diagnostico["mensaje"], diagnostico)
             return {
@@ -1050,6 +1205,67 @@ class AuditSuite(StressSuite):
             f"X={[round(v, 6) for v in resultado['x']]}",
         )
 
+    def prueba_indeterminado(self) -> None:
+        modelo = MatrixIO.modelo_embebido()
+        modelo["A"][5] = [2.0 * c for c in modelo["A"][0]]
+        modelo["B"][5] = 2.0 * modelo["B"][0]
+        try:
+            TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+            self._registrar(
+                "E. Compatible indeterminado  F6=2F1 y B6=2B1",
+                False,
+                "El agente no abortó pese a rank(A) < n.",
+            )
+        except SingularSystemError as error:
+            diag = error.diagnostico
+            familia = diag.get("familia") or {}
+            x_p = familia.get("x_particular") or []
+            base = familia.get("base_nula") or []
+            residual_p = 0.0
+            nucleos_ok = True
+            if x_p:
+                ax = _producto_matriz_vector(modelo["A"], x_p)
+                residual_p = _norma_euclidea([ax[i] - modelo["B"][i] for i in range(len(ax))])
+            for vector in base:
+                av = _producto_matriz_vector(modelo["A"], vector)
+                if _norma_euclidea(av) > EPSILON_RESIDUO:
+                    nucleos_ok = False
+            ok = (
+                diag.get("clasificacion") == "indeterminado"
+                and int(familia.get("grados_libertad") or 0) >= 1
+                and bool(x_p)
+                and bool(base)
+                and residual_p < EPSILON_RESIDUO
+                and nucleos_ok
+            )
+            self._registrar(
+                "E. Compatible indeterminado  F6=2F1 y B6=2B1",
+                ok,
+                f"libres={familia.get('libres')}  ||AXp-B||={residual_p:.3e}  {familia.get('expresion', '')[:80]}",
+            )
+
+    def prueba_nombres_arbitrarios(self) -> None:
+        modelo = normalizar_modelo(
+            {
+                "A": [[1.0, 0.0], [0.0, 1.0]],
+                "B": [3.0, 4.0],
+                "variables": ["alpha", "beta"],
+                "recursos": ["foo", "bar"],
+            }
+        )
+        resultado = TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+        ok = (
+            abs(resultado["x"][0] - 3.0) < 1e-12
+            and abs(resultado["x"][1] - 4.0) < 1e-12
+            and resultado["variables"] == ["alpha", "beta"]
+            and resultado["recursos"] == ["foo", "bar"]
+        )
+        self._registrar(
+            "F. Nombres arbitrarios alpha/beta",
+            ok,
+            f"variables={resultado['variables']}  X={[round(v, 6) for v in resultado['x']]}",
+        )
+
     def ejecutar_detalle(self) -> Dict[str, Any]:
         if self.imprimir:
             print("\n" + "#" * 72)
@@ -1063,6 +1279,8 @@ class AuditSuite(StressSuite):
         self.prueba_planta_8x8()
         self.prueba_json_minusculas()
         self.prueba_b_columna()
+        self.prueba_indeterminado()
+        self.prueba_nombres_arbitrarios()
         total = len(self.resultados)
         aprobadas = sum(1 for r in self.resultados if r["ok"])
         if self.imprimir:

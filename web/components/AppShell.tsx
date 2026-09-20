@@ -1,6 +1,15 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
+
+function NavFallback() {
+  return (
+    <header className="sticky top-0 z-20 border-b border-line bg-background/80 backdrop-blur-xl">
+      <div className="h-[52px]" />
+    </header>
+  );
+}
 
 export async function AppShell({
   children,
@@ -18,7 +27,9 @@ export async function AppShell({
 
   return (
     <div className={`flex flex-col ${full ? "h-dvh overflow-hidden" : "min-h-full"}`}>
-      <Nav email={user?.email} />
+      <Suspense fallback={<NavFallback />}>
+        <Nav email={user?.email} />
+      </Suspense>
       <main
         className={
           full

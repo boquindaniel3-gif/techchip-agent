@@ -26,6 +26,8 @@ type Props = {
   estres: EstresResult | null;
   onChangeA: (A: number[][]) => void;
   onChangeB: (B: number[]) => void;
+  onChangeVariables: (variables: string[]) => void;
+  onChangeRecursos: (recursos: string[]) => void;
   onMethod: (m: Metodo) => void;
   onOrden: (n: number) => void;
   onBase: () => void;
@@ -48,6 +50,8 @@ export function Dashboard({
   estres,
   onChangeA,
   onChangeB,
+  onChangeVariables,
+  onChangeRecursos,
   onMethod,
   onOrden,
   onBase,
@@ -120,6 +124,8 @@ export function Dashboard({
         recursos={recursos}
         onChangeA={onChangeA}
         onChangeB={onChangeB}
+        onChangeVariables={onChangeVariables}
+        onChangeRecursos={onChangeRecursos}
       />
 
       <div className="flex flex-wrap items-center gap-2">

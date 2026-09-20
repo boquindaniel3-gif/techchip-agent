@@ -31,6 +31,20 @@ export type Semantica = {
   residual_relativo?: number;
 };
 
+export type FamiliaSolucion = {
+  compatible?: boolean;
+  grados_libertad?: number;
+  pivotes?: number[];
+  libres?: number[];
+  libres_nombres?: string[];
+  x_particular?: number[] | null;
+  base_nula?: number[][];
+  contradicciones?: { fila_rref: number; residuo: number }[];
+  expresion?: string;
+  lineas?: string[];
+  parametros?: string[];
+};
+
 export type Diagnostico = {
   n?: number;
   determinante?: number;
@@ -44,6 +58,7 @@ export type Diagnostico = {
   metodo_elegido?: string;
   residual_relativo?: number;
   numericamente_inestable?: boolean;
+  familia?: FamiliaSolucion;
 };
 
 export type ResolverResult = {

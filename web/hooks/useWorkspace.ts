@@ -31,8 +31,53 @@ async function tokenSesion(): Promise<string | undefined> {
 const SALUDO: ChatMessage = {
   id: "saludo",
   role: "assistant",
-  text: `Soy el agente de balance de planta. ${TEXTO_AYUDA}`,
+  text: TEXTO_AYUDA,
 };
+
+function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number): string {
+  const clasificacion = data.diagnostico?.clasificacion;
+  const familia = data.diagnostico?.familia;
+  if (clasificacion === "incompatible") {
+    return (
+      `No es posible: el sistema es incompatible (cero soluciones, n=${n}). ` +
+      (familia?.expresion ?? data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "")
+    );
+  }
+  if (clasificacion === "indeterminado") {
+    const libres = familia?.libres_nombres?.length
+      ? familia.libres_nombres.join(", ")
+      : (familia?.libres ?? []).map((i) => `x${i}`).join(", ");
+    const forma = familia?.lineas?.length ? ` ${familia.lineas.join(" | ")}` : "";
+    return (
+      `Hay varias combinaciones posibles (${familia?.grados_libertad ?? "?"} grado(s) de libertad` +
+      (libres ? `; libres: ${libres}` : "") +
+      `).${forma}`
+    );
+  }
+  if (!data.x) {
+    return data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "Sistema singular o abortado.";
+  }
+  const elegido = data.diagnostico?.metodo_elegido;
+  const residuoElegido = elegido ? data.residuos?.[elegido]?.norma_euclidea : undefined;
+  const residuo =
+    typeof residuoElegido === "number"
+      ? residuoElegido
+      : Object.values(data.residuos ?? {})[0]?.norma_euclidea;
+  const rel = data.diagnostico?.residual_relativo;
+  const aviso = data.diagnostico?.numericamente_inestable
+    ? " Advertencia: residual relativo alto."
+    : "";
+  const residuoTxt =
+    typeof residuo === "number" ? `  ||AX−B||₂ = ${residuo.toExponential(3)}` : "";
+  const relTxt = typeof rel === "number" ? `  rel = ${rel.toExponential(3)}` : "";
+  return (
+    `Listo (${elegido ?? metodo}, n=${n}). ` +
+    `X = [${data.x.map((v) => v.toFixed(6)).join(", ")}]` +
+    residuoTxt +
+    relTxt +
+    aviso
+  );
+}
 
 export function useWorkspace() {
   const inicial = useMemo(() => modeloBase(), []);
@@ -100,29 +145,7 @@ export function useWorkspace() {
         setResultado(data);
         setMethod(metodo);
         await cargarHistorial();
-        if (!data.x) {
-          return data.semantica?.mensaje ?? "Sistema singular o abortado.";
-        }
-        const elegido = data.diagnostico?.metodo_elegido;
-        const residuoElegido = elegido ? data.residuos?.[elegido]?.norma_euclidea : undefined;
-        const residuo =
-          typeof residuoElegido === "number"
-            ? residuoElegido
-            : Object.values(data.residuos ?? {})[0]?.norma_euclidea;
-        const rel = data.diagnostico?.residual_relativo;
-        const aviso = data.diagnostico?.numericamente_inestable
-          ? " Advertencia: residual relativo alto."
-          : "";
-        const residuoTxt =
-          typeof residuo === "number" ? `  ||AX−B||₂ = ${residuo.toExponential(3)}` : "";
-        const relTxt = typeof rel === "number" ? `  rel = ${rel.toExponential(3)}` : "";
-        return (
-          `Listo (${elegido ?? metodo}, n=${matrizA.length}). ` +
-          `X = [${data.x.map((v) => v.toFixed(6)).join(", ")}]` +
-          residuoTxt +
-          relTxt +
-          aviso
-        );
+        return redactarRespuesta(data, metodo, matrizA.length);
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "No se pudo resolver.";
         setError(mensaje);
@@ -272,6 +295,8 @@ export function useWorkspace() {
     mensajes,
     setA,
     setB,
+    setVariables,
+    setRecursos,
     setMethod,
     aplicarModelo,
     cambiarOrden,

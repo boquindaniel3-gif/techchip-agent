@@ -19,6 +19,7 @@ from techchip_agent import (  # noqa: E402
     SingularSystemError,
     StressSuite,
     TechChipAgent,
+    analizar_familia,
     normalizar_modelo,
 )
 
@@ -126,8 +127,13 @@ def resolver(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except SingularSystemError as error:
+        diagnostico = dict(error.diagnostico or {})
+        if "familia" not in diagnostico:
+            diagnostico["familia"] = analizar_familia(
+                modelo["A"], modelo["B"], modelo.get("variables")
+            )
         resultado = {
-            "diagnostico": error.diagnostico,
+            "diagnostico": diagnostico,
             "abortado": True,
             "soluciones": {},
             "traza": [],
@@ -140,7 +146,7 @@ def resolver(
             "semantica": {
                 "factible": False,
                 "negativos": [],
-                "lineas_plan": [],
+                "lineas_plan": list((diagnostico.get("familia") or {}).get("lineas") or []),
                 "mensaje": str(error),
                 "balance_recursos": [],
                 "cuellos_botella": [],

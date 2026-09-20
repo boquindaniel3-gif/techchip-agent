@@ -7,9 +7,20 @@ type Props = {
   recursos: string[];
   onChangeA: (A: number[][]) => void;
   onChangeB: (B: number[]) => void;
+  onChangeVariables: (variables: string[]) => void;
+  onChangeRecursos: (recursos: string[]) => void;
 };
 
-export function MatrixEditor({ A, B, variables, recursos, onChangeA, onChangeB }: Props) {
+export function MatrixEditor({
+  A,
+  B,
+  variables,
+  recursos,
+  onChangeA,
+  onChangeB,
+  onChangeVariables,
+  onChangeRecursos,
+}: Props) {
   function setCelda(i: number, j: number, valor: string) {
     const siguiente = A.map((fila) => fila.slice());
     siguiente[i][j] = Number(valor);
@@ -22,10 +33,23 @@ export function MatrixEditor({ A, B, variables, recursos, onChangeA, onChangeB }
     onChangeB(siguiente);
   }
 
+  function setVariable(j: number, valor: string) {
+    const siguiente = variables.slice();
+    siguiente[j] = valor;
+    onChangeVariables(siguiente);
+  }
+
+  function setRecurso(i: number, valor: string) {
+    const siguiente = recursos.slice();
+    siguiente[i] = valor;
+    onChangeRecursos(siguiente);
+  }
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-card p-4">
       <p className="mb-3 text-sm text-muted">
         Matriz de consumos A ({A.length}×{A.length}: filas = recursos, columnas = módulos) y vector B.
+        Los nombres de módulo y recurso son libres: pon lo que el sistema represente.
       </p>
       <table className="w-full border-collapse text-center text-xs">
         <thead>
@@ -33,10 +57,14 @@ export function MatrixEditor({ A, B, variables, recursos, onChangeA, onChangeB }
             <th className="p-1 text-left text-muted">Recurso \ xᵢ</th>
             {A[0]?.map((_, j) => (
               <th key={`col-${j}`} className="p-1 font-medium">
-                x{j + 1}
-                <div className="max-w-[7rem] truncate font-normal text-[10px] text-muted">
-                  {variables[j] ?? `x${j + 1}`}
-                </div>
+                <div className="text-[10px] text-muted">x{j + 1}</div>
+                <input
+                  type="text"
+                  value={variables[j] ?? `x${j + 1}`}
+                  onChange={(e) => setVariable(j, e.target.value)}
+                  aria-label={`Nombre del módulo x${j + 1}`}
+                  className="mt-0.5 w-28 rounded-lg border border-line bg-background px-1 py-1 text-center font-normal"
+                />
               </th>
             ))}
             <th className="p-1">B</th>
@@ -45,8 +73,14 @@ export function MatrixEditor({ A, B, variables, recursos, onChangeA, onChangeB }
         <tbody>
           {A.map((fila, i) => (
             <tr key={`row-${i}`}>
-              <td className="max-w-[10rem] p-1 text-left text-muted">
-                {recursos[i] ?? `Recurso ${i + 1}`}
+              <td className="p-1 text-left">
+                <input
+                  type="text"
+                  value={recursos[i] ?? `Recurso ${i + 1}`}
+                  onChange={(e) => setRecurso(i, e.target.value)}
+                  aria-label={`Nombre del recurso ${i + 1}`}
+                  className="w-40 max-w-[12rem] rounded-lg border border-line bg-background px-1 py-1 text-left text-muted"
+                />
               </td>
               {fila.map((valor, j) => (
                 <td key={`${i}-${j}`} className="p-1">

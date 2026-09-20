@@ -89,4 +89,4 @@ export function interpretarMensaje(texto: string): Intent {
 }
 
 export const TEXTO_AYUDA =
-  "Puedes pegar un JSON {\"A\":[[...]],\"B\":[...]} o {\"a\":...,\"b\":...} (n×n, de 2 a 12), dictar o escribir: modelo base, planta 8×8, resuelve, gauss, gauss-jordan, inversa, escasez, degenerado, estrés, historial, orden 8.";
+  "Soy el agente de AX = B. Pega un JSON {\"A\":[[...]],\"B\":[...],\"variables\":[...]} (n×n, 2–12; los nombres de módulo son libres), o escribe: modelo base, planta 8×8, resuelve, gauss / gauss-jordan / inversa, escasez, degenerado, estrés, historial, orden 8. Detecto si el sistema es imposible, tiene solución única o admite varias combinaciones.";
