@@ -20,6 +20,7 @@ Uso:
     python techchip_agent.py --json data/modelo_base.json
     python techchip_agent.py --interactive
     python techchip_agent.py --stress
+    python techchip_agent.py --audit
     python techchip_agent.py --method gauss
 """
 
@@ -39,8 +40,9 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 EPSILON_PIVOTE = 1e-12
-EPSILON_DET = 1e-10
+EPSILON_DET = 1e-10  # solo informativo; la singularidad se decide por el rango
 EPSILON_RESIDUO = 1e-6
+EPSILON_REL_RESIDUO = 1e-8
 EPSILON_CONSISTENCIA = 1e-8
 DECIMALES_TRAZA = 4
 
@@ -146,14 +148,42 @@ def validar_orden(n: int) -> None:
         )
 
 
+def _coercer_escalar(valor: Any) -> float:
+    """Convierte un coeficiente a float finito; aplana columnas [c]."""
+    if isinstance(valor, bool) or valor is None:
+        raise ValueError(f"Coeficiente no numérico: {valor!r}.")
+    if isinstance(valor, (list, tuple)):
+        if len(valor) != 1:
+            raise ValueError(
+                f"Se esperaba un escalar (o una columna de un elemento), recibido {valor!r}."
+            )
+        return _coercer_escalar(valor[0])
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"No se pudo interpretar {valor!r} como número.") from error
+    if not math.isfinite(numero):
+        raise ValueError("A y B no pueden contener NaN ni infinitos.")
+    return numero
+
+
+def extraer_ab(modelo: Dict[str, Any]) -> Tuple[Any, Any]:
+    matriz_a = modelo.get("A", modelo.get("a"))
+    vector_b = modelo.get("B", modelo.get("b"))
+    if matriz_a is None or vector_b is None:
+        raise ValueError(
+            "El modelo debe contener las claves 'A' y 'B' (también se aceptan 'a' y 'b')."
+        )
+    return matriz_a, vector_b
+
+
 def normalizar_modelo(modelo: Dict[str, Any]) -> Dict[str, Any]:
     """Valida A cuadrada 2..12, B de longitud n, y alinea etiquetas."""
-    if "A" not in modelo or "B" not in modelo:
-        raise ValueError("El modelo debe contener las claves 'A' y 'B'.")
-    matriz_a = [[float(c) for c in fila] for fila in modelo["A"]]
-    vector_b = [float(c) for c in modelo["B"]]
-    if not matriz_a:
+    crudo_a, crudo_b = extraer_ab(modelo)
+    if not crudo_a:
         raise ValueError("La matriz A está vacía.")
+    matriz_a = [[_coercer_escalar(c) for c in fila] for fila in crudo_a]
+    vector_b = [_coercer_escalar(c) for c in crudo_b]
     n = len(matriz_a)
     validar_orden(n)
     for i, fila in enumerate(matriz_a):
@@ -195,10 +225,10 @@ class MatrixIO:
 
     Contrato JSON mínimo:
         {
-          "A": [[...], ...],          # n x n
-          "B": [...],                 # n
-          "variables": ["..."],       # opcional, n nombres
-          "recursos": ["..."]         # opcional, n nombres
+          "A" o "a": [[...], ...],   # n x n
+          "B" o "b": [...],          # n (también se acepta columna [[c], ...])
+          "variables": ["..."],      # opcional, n nombres
+          "recursos": ["..."]        # opcional, n nombres
         }
     """
 
@@ -228,10 +258,8 @@ class MatrixIO:
     def cargar_json(ruta: str) -> Dict[str, Any]:
         with open(ruta, "r", encoding="utf-8") as archivo:
             datos = json.load(archivo)
-        if "A" not in datos or "B" not in datos:
-            raise ValueError("El JSON debe contener las claves 'A' y 'B'.")
-        datos["A"] = [[float(c) for c in fila] for fila in datos["A"]]
-        datos["B"] = [float(c) for c in datos["B"]]
+        if not isinstance(datos, dict):
+            raise ValueError("El JSON debe ser un objeto con claves A y B.")
         return datos
 
     @staticmethod
@@ -302,9 +330,11 @@ class SystemValidator:
         """
         Calcula det(A), rank(A) y rank([A|B]).
 
-        Si |det(A)| < EPSILON_DET el sistema no es unisolvente:
-            rank(A) < rank([A|B])  -> incompatible (cero soluciones)
-            rank(A) = rank([A|B]) < n -> compatible indeterminado (infinitas)
+        La unisolvencia se decide por el rango (tolerancia relativa de NumPy),
+        no por un umbral absoluto de |det(A)|:
+            rank(A) = n                 -> determinado (solución única)
+            rank(A) < rank([A|B])       -> incompatible (cero soluciones)
+            rank(A) = rank([A|B]) < n   -> compatible indeterminado (infinitas)
         """
         n = self.validar_dimensiones()
         a_np = np.array(self.A, dtype=float)
@@ -312,27 +342,31 @@ class SystemValidator:
         aumentada = np.hstack((a_np, b_np))
 
         determinante = float(np.linalg.det(a_np))
-        rango_a = int(np.linalg.matrix_rank(a_np, tol=EPSILON_DET))
-        rango_aumentada = int(np.linalg.matrix_rank(aumentada, tol=EPSILON_DET))
-        singular = abs(determinante) < EPSILON_DET
+        rango_a = int(np.linalg.matrix_rank(a_np))
+        rango_aumentada = int(np.linalg.matrix_rank(aumentada))
+        singular = rango_a < n
 
         if not singular:
             clasificacion = "determinado"
             mensaje = (
-                f"Sistema determinado: det(A) = {determinante:.6f} ≠ 0, "
-                f"rank(A) = {rango_a} = n = {n}. Existe solución única."
+                f"Sistema determinado: rank(A) = {rango_a} = n = {n}. Existe solución única. "
+                f"det(A) = {determinante:.6e}."
             )
+            if abs(determinante) < EPSILON_DET:
+                mensaje += (
+                    " Nota: |det(A)| es pequeño; conviene revisar el residual ||AX−B||."
+                )
         elif rango_a < rango_aumentada:
             clasificacion = "incompatible"
             mensaje = (
-                "Alerta de Singularidad: det(A) = 0. "
+                "Alerta de Singularidad: rank(A) < n. "
                 "Diagnóstico: Sistema Incompatible. Cero soluciones posibles "
-                f"(rank(A) = {rango_a} < rank([A|B]) = {rango_aumentada})."
+                f"(rank(A) = {rango_a} < rank([A|B]) = {rango_aumentada}, n = {n})."
             )
         else:
             clasificacion = "indeterminado"
             mensaje = (
-                "Alerta de Singularidad: det(A) = 0. "
+                "Alerta de Singularidad: rank(A) < n. "
                 "Diagnóstico: Sistema compatible indeterminado. Infinitas soluciones "
                 f"(rank(A) = rank([A|B]) = {rango_a} < n = {n})."
             )
@@ -422,7 +456,7 @@ class LinearSolvers:
 
     Invariante de implementación:
         - copias profundas (el modelo original no se muta)
-        - pivoteo parcial por columna
+        - pivoteo parcial escalado por columna
         - aritmética sobre List[List[float]]
         - aborto si el pivote cae bajo EPSILON_PIVOTE
     """
@@ -433,8 +467,15 @@ class LinearSolvers:
     def _pivote_parcial(
         self, matriz: List[List[float]], k: int, n: int, columnas_izq: int
     ) -> None:
-        """Intercambia la fila k con la de mayor |a_ik| para k <= i < n."""
-        indice_pivote = max(range(k, n), key=lambda i: abs(matriz[i][k]))
+        """Pivoteo parcial escalado: max |a_ik| / max_{j>=k}|a_ij| para i >= k."""
+
+        def puntuacion(i: int) -> float:
+            escala = max((abs(matriz[i][j]) for j in range(k, n)), default=0.0)
+            if escala == 0.0:
+                return 0.0
+            return abs(matriz[i][k]) / escala
+
+        indice_pivote = max(range(k, n), key=puntuacion)
         if _es_cero(matriz[indice_pivote][k]):
             raise SingularSystemError(
                 f"Pivote nulo en la columna {k + 1}. El sistema es singular a precisión de máquina."
@@ -582,6 +623,8 @@ class OperationsInterpreter:
         vector_x: Sequence[float],
         matriz_a: Optional[List[List[float]]] = None,
         vector_b: Optional[Sequence[float]] = None,
+        numericamente_inestable: bool = False,
+        residual_relativo: float = 0.0,
     ) -> Dict[str, Any]:
         n = len(vector_x)
         negativos = [
@@ -660,6 +703,15 @@ class OperationsInterpreter:
             )
             factible = True
 
+        if numericamente_inestable:
+            aviso = (
+                f"Advertencia numérica: ||AX−B|| / max(||B||,1) = {residual_relativo:.3e}. "
+                "La solución puede ser inestable (matriz mal condicionada); "
+                "no se garantiza un plan operativo al 100%."
+            )
+            mensaje = aviso + "\n" + mensaje
+            factible = False
+
         return {
             "factible": factible,
             "negativos": negativos_json,
@@ -667,6 +719,8 @@ class OperationsInterpreter:
             "mensaje": mensaje,
             "balance_recursos": balance,
             "cuellos_botella": cuellos,
+            "numericamente_inestable": numericamente_inestable,
+            "residual_relativo": residual_relativo,
         }
 
     def imprimir(self, resultado: Dict[str, Any]) -> None:
@@ -775,26 +829,41 @@ class TechChipAgent:
             x_inv, _inversa_a = solvers.inversa(self.A, self.B)
             soluciones["inversa"] = x_inv
 
-        referencia = next(iter(soluciones.values()))
         residuos = {nombre: self.residual(x) for nombre, x in soluciones.items()}
+        metodo_elegido = min(residuos, key=lambda nombre: residuos[nombre]["norma_euclidea"])
+        referencia = soluciones[metodo_elegido]
         sesgos = {
             nombre: max(abs(soluciones[nombre][i] - referencia[i]) for i in range(len(referencia)))
             for nombre in soluciones
         }
+        residual_abs = residuos[metodo_elegido]["norma_euclidea"]
+        residual_relativo = residual_abs / max(_norma_euclidea(self.B), 1.0)
+        inestable = residual_relativo > EPSILON_REL_RESIDUO
+        diagnostico["metodo_elegido"] = metodo_elegido
+        diagnostico["residual_relativo"] = residual_relativo
+        diagnostico["numericamente_inestable"] = inestable
 
         interprete = OperationsInterpreter(self.variables, self.recursos, self.planta)
-        semantica = interprete.interpretar(referencia, self.A, self.B)
+        semantica = interprete.interpretar(
+            referencia,
+            self.A,
+            self.B,
+            numericamente_inestable=inestable,
+            residual_relativo=residual_relativo,
+        )
         if verbose:
             print("\n" + "=" * 72)
             print("VERIFICACIÓN INTER-MÉTODO Y RESIDUO")
             print("=" * 72)
             for nombre, x in soluciones.items():
                 r = residuos[nombre]
+                marca = " ← elegido" if nombre == metodo_elegido else ""
                 print(
                     f"  {nombre:14s}  X = {[round(v, 6) for v in x]}  "
-                    f"||AX-B||_2 = {r['norma_euclidea']:.3e}"
+                    f"||AX-B||_2 = {r['norma_euclidea']:.3e}{marca}"
                 )
             print(f"  Desviación máxima entre métodos: {max(sesgos.values()):.3e}")
+            print(f"  Residual relativo: {residual_relativo:.3e}")
             interprete.imprimir(semantica)
 
         return {
@@ -807,6 +876,7 @@ class TechChipAgent:
             "x": referencia,
             "traza": list(tracer.historial),
             "metodo": metodo,
+            "metodo_elegido": metodo_elegido,
             "A": copy.deepcopy(self.A),
             "B": list(self.B),
             "variables": list(self.variables),
@@ -924,6 +994,88 @@ class StressSuite:
         }
 
 
+class AuditSuite(StressSuite):
+    """Casos extra de ingest JSON y escalado; no sustituye la guía del parcial."""
+
+    def prueba_escala_pequena(self) -> None:
+        escala = 1e-6
+        modelo = {
+            "A": [[2.0 * escala, 1.0 * escala], [1.0 * escala, 3.0 * escala]],
+            "B": [8.0 * escala, 13.0 * escala],
+        }
+        try:
+            resultado = TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+        except SingularSystemError as error:
+            self._registrar("A. 2×2 a escala 1e-6", False, f"Abortó: {error}")
+            return
+        esperado = [2.2, 3.6]
+        desvio = max(abs(resultado["x"][i] - esperado[i]) for i in range(2))
+        residuo = resultado["residuos"][resultado["metodo_elegido"]]["norma_euclidea"]
+        ok = desvio < 1e-9 and residuo < 1e-15 and not resultado["abortado"]
+        self._registrar(
+            "A. 2×2 a escala 1e-6",
+            ok,
+            f"X={[round(v, 6) for v in resultado['x']]}  ||AX-B||={residuo:.3e}",
+        )
+
+    def prueba_planta_8x8(self) -> None:
+        resultado = TechChipAgent(modelo=MatrixIO.modelo_8x8()).resolver(
+            method="all", verbose=False
+        )
+        desvio = max(abs(resultado["x"][i] - X_ESTRELLA_8[i]) for i in range(8))
+        ok = desvio < EPSILON_RESIDUO and not resultado["abortado"]
+        self._registrar(
+            "B. Planta 8×8  X* extendido",
+            ok,
+            f"max|ΔX|={desvio:.3e}  n={resultado['diagnostico']['n']}",
+        )
+
+    def prueba_json_minusculas(self) -> None:
+        modelo = normalizar_modelo({"a": [[1, 0], [0, 1]], "b": [3, 4]})
+        resultado = TechChipAgent(modelo=modelo).resolver(method="gauss", verbose=False)
+        ok = abs(resultado["x"][0] - 3) < 1e-12 and abs(resultado["x"][1] - 4) < 1e-12
+        self._registrar(
+            "C. JSON claves a/b",
+            ok,
+            f"X={[round(v, 6) for v in resultado['x']]}",
+        )
+
+    def prueba_b_columna(self) -> None:
+        modelo = normalizar_modelo({"A": [[1, 0], [0, 1]], "B": [[5], [7]]})
+        resultado = TechChipAgent(modelo=modelo).resolver(method="gauss-jordan", verbose=False)
+        ok = abs(resultado["x"][0] - 5) < 1e-12 and abs(resultado["x"][1] - 7) < 1e-12
+        self._registrar(
+            "D. B como columna",
+            ok,
+            f"X={[round(v, 6) for v in resultado['x']]}",
+        )
+
+    def ejecutar_detalle(self) -> Dict[str, Any]:
+        if self.imprimir:
+            print("\n" + "#" * 72)
+            print("AUDITORÍA NUMÉRICA E INGEST JSON — TechChip Agent")
+            print("#" * 72)
+        self.prueba_base()
+        self.prueba_sustitucion()
+        self.prueba_escasez()
+        self.prueba_degenerado()
+        self.prueba_escala_pequena()
+        self.prueba_planta_8x8()
+        self.prueba_json_minusculas()
+        self.prueba_b_columna()
+        total = len(self.resultados)
+        aprobadas = sum(1 for r in self.resultados if r["ok"])
+        if self.imprimir:
+            print("-" * 72)
+            print(f"Resultado auditoría: {aprobadas}/{total} pruebas satisfactorias.")
+        return {
+            "total": total,
+            "aprobadas": aprobadas,
+            "exitoso": aprobadas == total,
+            "resultados": list(self.resultados),
+        }
+
+
 # ===========================================================================
 # Interfaz de línea de comandos
 # ===========================================================================
@@ -937,20 +1089,25 @@ def _construir_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument(
+        "--stress",
+        action="store_true",
+        help="Ejecutar las cuatro pruebas de estrés de la guía del parcial.",
+    )
+    parser.add_argument(
+        "--audit",
+        action="store_true",
+        help="Ejecutar la guía más casos de JSON (a/b, B columna) y 2×2 a escala 1e-6.",
+    )
+    parser.add_argument(
         "--json",
         dest="json_path",
         default=None,
-        help="Ruta a un archivo JSON con claves A y B (y opcionalmente variables/recursos).",
+        help="Ruta a un JSON con A/B (también a/b; B puede ir como columna).",
     )
     parser.add_argument(
         "--interactive",
         action="store_true",
         help="Capturar A y B desde la consola.",
-    )
-    parser.add_argument(
-        "--stress",
-        action="store_true",
-        help="Ejecutar las cuatro pruebas de estrés de la guía del parcial.",
     )
     parser.add_argument(
         "--method",
@@ -971,6 +1128,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.stress:
         return StressSuite().ejecutar()
+    if args.audit:
+        return AuditSuite().ejecutar()
 
     try:
         if args.interactive:

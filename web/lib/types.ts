@@ -27,6 +27,8 @@ export type Semantica = {
   negativos: { indice: number; valor: number; nombre: string }[];
   balance_recursos?: RecursoBalance[];
   cuellos_botella?: RecursoBalance[];
+  numericamente_inestable?: boolean;
+  residual_relativo?: number;
 };
 
 export type Diagnostico = {
@@ -39,6 +41,9 @@ export type Diagnostico = {
   mensaje?: string;
   exitoso?: boolean;
   aprobadas?: number;
+  metodo_elegido?: string;
+  residual_relativo?: number;
+  numericamente_inestable?: boolean;
 };
 
 export type ResolverResult = {
@@ -54,6 +59,7 @@ export type ResolverResult = {
   semantica?: Semantica;
   traza: string[];
   metodo: string;
+  metodo_elegido?: string;
   variables?: string[];
   recursos?: string[];
 };

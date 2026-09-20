@@ -110,3 +110,61 @@ export function redimensionarSistema(
     recursos: alinearNombres(recursos, n, "Recurso {i}"),
   };
 }
+
+function coercerEscalar(valor: unknown): number {
+  if (Array.isArray(valor)) {
+    if (valor.length !== 1) {
+      throw new Error("Cada entrada de B debe ser un número (o una columna de un elemento).");
+    }
+    return coercerEscalar(valor[0]);
+  }
+  if (typeof valor === "number" && Number.isFinite(valor)) return valor;
+  if (typeof valor === "string" && valor.trim() !== "") {
+    const n = Number(valor);
+    if (Number.isFinite(n)) return n;
+  }
+  throw new Error(`Valor no numérico: ${String(valor)}`);
+}
+
+export function parsearModeloJson(datos: unknown): ModeloPlanta {
+  if (!datos || typeof datos !== "object") {
+    throw new Error("El JSON debe ser un objeto con A y B.");
+  }
+  const obj = datos as Record<string, unknown>;
+  const crudoA = obj.A ?? obj.a;
+  const crudoB = obj.B ?? obj.b;
+  if (!Array.isArray(crudoA) || !Array.isArray(crudoB)) {
+    throw new Error("El JSON debe incluir A y B (también se aceptan a y b).");
+  }
+  const A = crudoA.map((fila, i) => {
+    if (!Array.isArray(fila)) {
+      throw new Error(`La fila ${i + 1} de A no es una lista.`);
+    }
+    return fila.map(coercerEscalar);
+  });
+  const B = crudoB.map(coercerEscalar);
+  const n = A.length;
+  if (n < N_MIN || n > N_MAX) {
+    throw new Error(`A debe ser n×n con n entre ${N_MIN} y ${N_MAX}.`);
+  }
+  A.forEach((fila, i) => {
+    if (fila.length !== n) {
+      throw new Error(`A debe ser cuadrada: la fila ${i + 1} tiene ${fila.length} columnas.`);
+    }
+  });
+  if (B.length !== n) {
+    throw new Error(`B debe tener ${n} entradas (A es ${n}×${n}).`);
+  }
+  const variables = Array.isArray(obj.variables)
+    ? (obj.variables as unknown[]).map((v) => String(v))
+    : undefined;
+  const recursos = Array.isArray(obj.recursos)
+    ? (obj.recursos as unknown[]).map((v) => String(v))
+    : undefined;
+  return {
+    A,
+    B,
+    variables: alinearNombres(variables, n, "x{i}"),
+    recursos: alinearNombres(recursos, n, "Recurso {i}"),
+  };
+}

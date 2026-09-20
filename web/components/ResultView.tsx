@@ -5,7 +5,10 @@ import type { ResolverResult } from "@/lib/types";
 export function ResultView({ resultado }: { resultado: ResolverResult }) {
   const diag = resultado.diagnostico ?? {};
   const semantica = resultado.semantica;
-  const alerta = resultado.abortado || semantica?.factible === false;
+  const alerta =
+    resultado.abortado ||
+    semantica?.factible === false ||
+    diag.numericamente_inestable === true;
   const balance = semantica?.balance_recursos ?? [];
   const cuellos = semantica?.cuellos_botella ?? [];
 
@@ -32,6 +35,18 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
             <dt className="text-muted">rank(A) / rank([A|B])</dt>
             <dd className="font-mono">
               {diag.rango_A ?? "—"} / {diag.rango_aumentada ?? "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Método elegido</dt>
+            <dd className="font-mono">
+              {diag.metodo_elegido ?? resultado.metodo_elegido ?? resultado.metodo}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Residual relativo</dt>
+            <dd className="font-mono">
+              {diag.residual_relativo != null ? diag.residual_relativo.toExponential(3) : "—"}
             </dd>
           </div>
         </dl>

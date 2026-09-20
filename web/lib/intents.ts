@@ -1,4 +1,4 @@
-import { N_MAX, N_MIN } from "@/lib/modelos";
+import { N_MAX, N_MIN, parsearModeloJson } from "@/lib/modelos";
 import type { Metodo } from "@/lib/types";
 
 export type Intent =
@@ -36,24 +36,24 @@ function extraerJson(texto: string): string | null {
 export function interpretarMensaje(texto: string): Intent {
   const jsonCrudo = extraerJson(texto);
   if (jsonCrudo) {
+    let datos: unknown = null;
     try {
-      const datos = JSON.parse(jsonCrudo) as {
-        A?: number[][];
-        B?: number[];
-        variables?: string[];
-        recursos?: string[];
-      };
-      if (Array.isArray(datos.A) && Array.isArray(datos.B)) {
+      datos = JSON.parse(jsonCrudo);
+    } catch {
+      datos = null;
+    }
+    if (datos && typeof datos === "object") {
+      const obj = datos as Record<string, unknown>;
+      if ((obj.A ?? obj.a) != null && (obj.B ?? obj.b) != null) {
+        const modelo = parsearModeloJson(datos);
         return {
           type: "json",
-          A: datos.A,
-          B: datos.B,
-          variables: datos.variables,
-          recursos: datos.recursos,
+          A: modelo.A,
+          B: modelo.B,
+          variables: modelo.variables,
+          recursos: modelo.recursos,
         };
       }
-    } catch {
-      /* no es JSON válido; sigue con intents */
     }
   }
 
@@ -89,4 +89,4 @@ export function interpretarMensaje(texto: string): Intent {
 }
 
 export const TEXTO_AYUDA =
-  "Puedes pegar un JSON {\"A\":[[...]],\"B\":[...]} (n×n, de 2 a 12), dictar o escribir: modelo base, planta 8×8, resuelve, gauss, gauss-jordan, inversa, escasez, degenerado, estrés, historial, orden 8.";
+  "Puedes pegar un JSON {\"A\":[[...]],\"B\":[...]} o {\"a\":...,\"b\":...} (n×n, de 2 a 12), dictar o escribir: modelo base, planta 8×8, resuelve, gauss, gauss-jordan, inversa, escasez, degenerado, estrés, historial, orden 8.";

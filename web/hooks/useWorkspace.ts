@@ -5,8 +5,6 @@ import { createClientOrNull } from "@/lib/supabase/client";
 import { apiFetch } from "@/lib/api";
 import { interpretarMensaje, TEXTO_AYUDA } from "@/lib/intents";
 import {
-  N_MAX,
-  N_MIN,
   alinearNombres,
   modelo8x8,
   modeloBase,
@@ -102,10 +100,29 @@ export function useWorkspace() {
         setResultado(data);
         setMethod(metodo);
         await cargarHistorial();
-        const xTxt = data.x
-          ? `X = [${data.x.map((v) => v.toFixed(2)).join(", ")}]`
-          : (data.semantica?.mensaje ?? "Sistema singular o abortado.");
-        return `Listo (${metodo}, n=${matrizA.length}). ${xTxt}`;
+        if (!data.x) {
+          return data.semantica?.mensaje ?? "Sistema singular o abortado.";
+        }
+        const elegido = data.diagnostico?.metodo_elegido;
+        const residuoElegido = elegido ? data.residuos?.[elegido]?.norma_euclidea : undefined;
+        const residuo =
+          typeof residuoElegido === "number"
+            ? residuoElegido
+            : Object.values(data.residuos ?? {})[0]?.norma_euclidea;
+        const rel = data.diagnostico?.residual_relativo;
+        const aviso = data.diagnostico?.numericamente_inestable
+          ? " Advertencia: residual relativo alto."
+          : "";
+        const residuoTxt =
+          typeof residuo === "number" ? `  ||AX−B||₂ = ${residuo.toExponential(3)}` : "";
+        const relTxt = typeof rel === "number" ? `  rel = ${rel.toExponential(3)}` : "";
+        return (
+          `Listo (${elegido ?? metodo}, n=${matrizA.length}). ` +
+          `X = [${data.x.map((v) => v.toFixed(6)).join(", ")}]` +
+          residuoTxt +
+          relTxt +
+          aviso
+        );
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "No se pudo resolver.";
         setError(mensaje);
@@ -174,24 +191,19 @@ export function useWorkspace() {
             break;
           }
           case "json": {
-            const nJson = intent.A.length;
-            if (nJson < N_MIN || nJson > N_MAX) {
-              throw new Error(`A debe ser n×n con n entre ${N_MIN} y ${N_MAX}.`);
-            }
-            for (let i = 0; i < intent.A.length; i += 1) {
-              if (intent.A[i].length !== nJson) {
-                throw new Error(
-                  `A debe ser cuadrada: la fila ${i + 1} tiene ${intent.A[i].length} columnas.`
-                );
-              }
-            }
-            if (intent.B.length !== nJson) {
-              throw new Error(`B debe tener ${nJson} entradas (A es ${nJson}×${nJson}).`);
-            }
-            const vars = alinearNombres(intent.variables ?? variables, nJson, "x{i}");
-            const recs = alinearNombres(intent.recursos ?? recursos, nJson, "Recurso {i}");
-            aplicarModelo({ A: intent.A, B: intent.B, variables: vars, recursos: recs });
-            respuesta = await resolver("all", intent.A, intent.B, vars, recs);
+            aplicarModelo({
+              A: intent.A,
+              B: intent.B,
+              variables: intent.variables ?? alinearNombres(undefined, intent.A.length, "x{i}"),
+              recursos: intent.recursos ?? alinearNombres(undefined, intent.A.length, "Recurso {i}"),
+            });
+            respuesta = await resolver(
+              "all",
+              intent.A,
+              intent.B,
+              intent.variables,
+              intent.recursos
+            );
             break;
           }
           case "resolver":
