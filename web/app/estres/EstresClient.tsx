@@ -43,7 +43,7 @@ export default function EstresClient() {
         type="button"
         disabled={pending}
         onClick={() => void ejecutar()}
-        className="rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-background disabled:opacity-60"
+        className="rounded-full bg-accent px-4 py-2.5 text-sm font-medium text-background disabled:opacity-60"
       >
         {pending ? "Ejecutando…" : "Ejecutar suite y guardar"}
       </button>

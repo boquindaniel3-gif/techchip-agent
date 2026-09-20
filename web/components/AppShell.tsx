@@ -2,7 +2,13 @@ import type { ReactNode } from "react";
 import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
 
-export async function AppShell({ children }: { children: ReactNode }) {
+export async function AppShell({
+  children,
+  full = false,
+}: {
+  children: ReactNode;
+  full?: boolean;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -11,9 +17,17 @@ export async function AppShell({ children }: { children: ReactNode }) {
     : { data: { user: null } };
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className={`flex flex-col ${full ? "h-dvh overflow-hidden" : "min-h-full"}`}>
       <Nav email={user?.email} />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{children}</main>
+      <main
+        className={
+          full
+            ? "flex min-h-0 flex-1 flex-col"
+            : "mx-auto w-full max-w-6xl flex-1 px-4 py-8"
+        }
+      >
+        {children}
+      </main>
     </div>
   );
 }

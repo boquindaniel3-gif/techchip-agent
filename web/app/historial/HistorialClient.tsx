@@ -46,8 +46,8 @@ export default function HistorialClient() {
       {!pending && !filas.length && !error ? (
         <p className="text-sm text-muted">
           Aún no hay corridas. Ve a{" "}
-          <Link href="/" className="text-accent">
-            Resolver
+          <Link href="/" className="font-medium text-foreground underline-offset-4 hover:underline">
+            Escritorio
           </Link>
           .
         </p>
@@ -56,7 +56,7 @@ export default function HistorialClient() {
         {filas.map((fila) => (
           <li key={fila.id} className="rounded-xl border border-line bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span className="font-medium text-accent">
+              <span className="font-medium">
                 {fila.tipo} · {fila.metodo}
               </span>
               <time className="text-xs text-muted">

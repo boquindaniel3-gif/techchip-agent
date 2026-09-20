@@ -1,9 +1,10 @@
 import { AuthForm } from "@/components/AuthForm";
+import { AuthScene } from "@/components/AuthScene";
 
 export default function RegistroPage() {
   return (
-    <div className="flex min-h-full items-center justify-center px-4 py-16">
+    <AuthScene>
       <AuthForm modo="registro" />
-    </div>
+    </AuthScene>
   );
 }

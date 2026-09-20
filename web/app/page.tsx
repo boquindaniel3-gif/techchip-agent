@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/AppShell";
-import { SolverPanel } from "@/components/SolverPanel";
+import { Workspace } from "@/components/Workspace";
 
 export default function HomePage() {
   return (
-    <AppShell>
-      <SolverPanel />
+    <AppShell full>
+      <Workspace />
     </AppShell>
   );
 }

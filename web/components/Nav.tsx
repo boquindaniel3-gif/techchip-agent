@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Wordmark } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/client";
 
 const LINKS = [
-  { href: "/", label: "Resolver" },
+  { href: "/", label: "Escritorio" },
   { href: "/historial", label: "Historial" },
   { href: "/estres", label: "Estrés" },
 ];
@@ -22,20 +23,18 @@ export function Nav({ email }: { email?: string | null }) {
   }
 
   return (
-    <header className="border-b border-line bg-card/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <Link href="/" className="text-sm font-semibold tracking-wide text-accent">
-          TechChip Agent
+    <header className="sticky top-0 z-20 border-b border-line bg-background/80 backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+        <Link href="/" className="text-foreground">
+          <Wordmark size={26} />
         </Link>
-        <nav className="flex flex-wrap items-center gap-2 text-sm">
+        <nav className="flex flex-wrap items-center gap-1 text-sm">
           {LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className={`rounded-md px-3 py-1.5 ${
-                path === link.href
-                  ? "bg-accent/15 text-accent"
-                  : "text-muted hover:text-foreground"
+              className={`rounded-full px-3 py-1.5 ${
+                path === link.href ? "bg-accent text-background" : "text-muted hover:text-foreground"
               }`}
             >
               {link.label}
@@ -47,7 +46,7 @@ export function Nav({ email }: { email?: string | null }) {
           <button
             type="button"
             onClick={() => void salir()}
-            className="rounded-md border border-line px-3 py-1.5 text-foreground hover:border-accent"
+            className="rounded-full border border-line px-3 py-1.5 text-foreground hover:border-foreground"
           >
             Salir
           </button>

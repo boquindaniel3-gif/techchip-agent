@@ -19,8 +19,7 @@ from techchip_agent import (  # noqa: E402
     SingularSystemError,
     StressSuite,
     TechChipAgent,
-    VARIABLES_BASE,
-    RECURSOS_BASE,
+    normalizar_modelo,
 )
 
 from api.auth import usuario_actual
@@ -98,19 +97,29 @@ def modelo_base(_usuario: Dict[str, Any] = Depends(usuario_actual)) -> Dict[str,
     return MatrixIO.modelo_embebido()
 
 
+@app.get("/api/modelo-8x8")
+def modelo_8x8(_usuario: Dict[str, Any] = Depends(usuario_actual)) -> Dict[str, Any]:
+    return MatrixIO.modelo_8x8()
+
+
 @app.post("/api/resolver")
 def resolver(
     body: ResolverBody,
     usuario: Dict[str, Any] = Depends(usuario_actual),
     settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
-    modelo = {
-        "planta": "TechChip Systems S.A.",
-        "A": body.A,
-        "B": body.B,
-        "variables": body.variables or list(VARIABLES_BASE),
-        "recursos": body.recursos or list(RECURSOS_BASE),
-    }
+    try:
+        modelo = normalizar_modelo(
+            {
+                "planta": "TechChip Systems S.A.",
+                "A": body.A,
+                "B": body.B,
+                "variables": body.variables,
+                "recursos": body.recursos,
+            }
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     agente = TechChipAgent(modelo=modelo)
     try:
         resultado = agente.resolver(method=body.method, verbose=False, trazar=False)
@@ -123,14 +132,18 @@ def resolver(
             "soluciones": {},
             "traza": [],
             "metodo": body.method,
-            "A": body.A,
-            "B": body.B,
+            "A": modelo["A"],
+            "B": modelo["B"],
+            "variables": modelo["variables"],
+            "recursos": modelo["recursos"],
             "x": None,
             "semantica": {
                 "factible": False,
                 "negativos": [],
                 "lineas_plan": [],
                 "mensaje": str(error),
+                "balance_recursos": [],
+                "cuellos_botella": [],
             },
         }
 

@@ -3,9 +3,9 @@
 Agente autónomo de balance logístico y resolución matricial
 para TechChip Systems S.A.
 
-Resuelve el sistema AX = B de asignación de recursos (6 líneas de módulos
-procesadores vs 6 recursos críticos) mediante tres métodos algebraicos
-implementados de forma explícita:
+Resuelve el sistema AX = B de asignación de recursos (n líneas de módulos
+frente a n recursos críticos, 2 ≤ n ≤ 12; el modelo de la guía es 6×6)
+mediante tres métodos algebraicos implementados de forma explícita:
 
     1. Eliminación de Gauss (triangularización + sustitución hacia atrás)
     2. Eliminación de Gauss-Jordan (reducción a [I | X])
@@ -85,6 +85,25 @@ RECURSOS_BASE = [
     "Inspección Óptica de Calidad (h-hombre)",
 ]
 
+N_MIN = 2
+N_MAX = 12
+
+# Planta extendida 8×8 (las 6 primeras líneas coinciden con la guía).
+X_ESTRELLA_8 = [15.0, 20.0, 25.0, 10.0, 15.0, 20.0, 12.0, 8.0]
+A_8 = [
+    [2.0, 1.0, 3.0, 1.0, 2.0, 1.0, 2.0, 1.0],
+    [1.0, 3.0, 2.0, 1.0, 1.0, 2.0, 1.0, 2.0],
+    [3.0, 2.0, 4.0, 1.0, 3.0, 2.0, 2.0, 1.0],
+    [1.0, 1.0, 1.0, 4.0, 2.0, 1.0, 1.0, 3.0],
+    [2.0, 1.0, 2.0, 1.0, 5.0, 3.0, 2.0, 2.0],
+    [1.0, 2.0, 1.0, 2.0, 1.0, 4.0, 1.0, 1.0],
+    [1.0, 2.0, 2.0, 1.0, 3.0, 2.0, 4.0, 2.0],
+    [0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 3.0, 5.0],
+]
+B_8 = [217.0, 218.0, 312.0, 186.0, 285.0, 215.0, 264.0, 136.0]
+VARIABLES_8 = VARIABLES_BASE + ["AI-Drone Swarm", "AI-Satellite Link"]
+RECURSOS_8 = RECURSOS_BASE + ["Cuarto limpio ISO 5 (h)", "Nitruro de galio (kg)"]
+
 
 def _es_cero(valor: float, eps: float = EPSILON_PIVOTE) -> bool:
     """Predicado de anulación numérica (pivotes / factores despreciables)."""
@@ -104,6 +123,57 @@ def _norma_euclidea(vector: Sequence[float]) -> float:
 
 def _formato_numero(valor: float, decimales: int = DECIMALES_TRAZA) -> str:
     return f"{valor:.{decimales}f}"
+
+
+def alinear_etiquetas(
+    nombres: Optional[Sequence[str]], n: int, plantilla: str
+) -> List[str]:
+    """Recorta o completa nombres hasta longitud n (x_i / Recurso i)."""
+    base = [str(nombre).strip() for nombre in (nombres or [])]
+    alineados: List[str] = []
+    for i in range(n):
+        if i < len(base) and base[i]:
+            alineados.append(base[i])
+        else:
+            alineados.append(plantilla.format(i=i + 1))
+    return alineados
+
+
+def validar_orden(n: int) -> None:
+    if n < N_MIN or n > N_MAX:
+        raise ValueError(
+            f"A debe ser n×n con n entre {N_MIN} y {N_MAX} (recibido n = {n})."
+        )
+
+
+def normalizar_modelo(modelo: Dict[str, Any]) -> Dict[str, Any]:
+    """Valida A cuadrada 2..12, B de longitud n, y alinea etiquetas."""
+    if "A" not in modelo or "B" not in modelo:
+        raise ValueError("El modelo debe contener las claves 'A' y 'B'.")
+    matriz_a = [[float(c) for c in fila] for fila in modelo["A"]]
+    vector_b = [float(c) for c in modelo["B"]]
+    if not matriz_a:
+        raise ValueError("La matriz A está vacía.")
+    n = len(matriz_a)
+    validar_orden(n)
+    for i, fila in enumerate(matriz_a):
+        if len(fila) != n:
+            raise ValueError(
+                f"A debe ser cuadrada n×n. La fila {i + 1} tiene {len(fila)} "
+                f"columnas; se esperaban {n}."
+            )
+    if len(vector_b) != n:
+        raise ValueError(
+            f"B debe tener {n} entradas porque A es {n}×{n} (recibido {len(vector_b)})."
+        )
+    return {
+        **modelo,
+        "A": matriz_a,
+        "B": vector_b,
+        "variables": alinear_etiquetas(modelo.get("variables"), n, "x{i}"),
+        "recursos": alinear_etiquetas(modelo.get("recursos"), n, "Recurso {i}"),
+        "planta": str(modelo.get("planta", "TechChip Systems S.A.")),
+    }
 
 
 class SingularSystemError(Exception):
@@ -144,6 +214,17 @@ class MatrixIO:
         }
 
     @staticmethod
+    def modelo_8x8() -> Dict[str, Any]:
+        """Planta extendida 8×8 calibrada para X* = (15, 20, 25, 10, 15, 20, 12, 8)."""
+        return {
+            "planta": "TechChip Systems S.A. — planta extendida",
+            "variables": list(VARIABLES_8),
+            "recursos": list(RECURSOS_8),
+            "A": copy.deepcopy(A_8),
+            "B": list(B_8),
+        }
+
+    @staticmethod
     def cargar_json(ruta: str) -> Dict[str, Any]:
         with open(ruta, "r", encoding="utf-8") as archivo:
             datos = json.load(archivo)
@@ -158,8 +239,7 @@ class MatrixIO:
         """Entrada interactiva: orden n, n filas de A y el vector B."""
         print("=== Entrada dinámica del sistema AX = B ===")
         n = int(input("Orden n de la matriz A (n x n): ").strip())
-        if n <= 0:
-            raise ValueError("El orden n debe ser un entero positivo.")
+        validar_orden(n)
 
         print(f"Ingrese las {n} filas de A ({n} coeficientes separados por espacio):")
         matriz_a: List[List[float]] = []
@@ -279,8 +359,9 @@ class RowOperationTracer:
     conforme al formato exigido por la guía del parcial.
     """
 
-    def __init__(self, activo: bool = True) -> None:
+    def __init__(self, activo: bool = True, resumido: bool = False) -> None:
         self.activo = activo
+        self.resumido = resumido
         self.historial: List[str] = []
 
     def _emitir(self, texto: str) -> None:
@@ -300,7 +381,11 @@ class RowOperationTracer:
             lineas.append(f"[ {izquierda} | {derecha} ]")
         return lineas
 
-    def imprimir_matriz(self, matriz: List[List[float]], columnas_izquierdas: int) -> None:
+    def imprimir_matriz(
+        self, matriz: List[List[float]], columnas_izquierdas: int, forzar: bool = False
+    ) -> None:
+        if self.resumido and not forzar:
+            return
         for linea in self._lineas_matriz(matriz, columnas_izquierdas):
             self._emitir(linea)
 
@@ -364,10 +449,11 @@ class LinearSolvers:
         y resolución por sustitución hacia atrás.
         """
         n = len(matriz_a)
+        self.tracer.resumido = n >= 8
         aumentada = [matriz_a[i][:] + [float(vector_b[i])] for i in range(n)]
         self.tracer.encabezado("MÉTODO 1 — Eliminación de Gauss")
         self.tracer.comentario("Matriz aumentada inicial [A | B]:")
-        self.tracer.imprimir_matriz(aumentada, n)
+        self.tracer.imprimir_matriz(aumentada, n, forzar=True)
 
         for k in range(n):
             self._pivote_parcial(aumentada, k, n, n)
@@ -381,6 +467,7 @@ class LinearSolvers:
                 self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
 
         self.tracer.comentario("\nMatriz triangular superior [U | c]. Sustitución hacia atrás:")
+        self.tracer.imprimir_matriz(aumentada, n, forzar=True)
         solucion = [0.0] * n
         for i in range(n - 1, -1, -1):
             acumulado = aumentada[i][n] - sum(
@@ -400,10 +487,11 @@ class LinearSolvers:
         mediante eliminación superior e inferior y normalización del pivote.
         """
         n = len(matriz_a)
+        self.tracer.resumido = n >= 8
         aumentada = [matriz_a[i][:] + [float(vector_b[i])] for i in range(n)]
         self.tracer.encabezado("MÉTODO 2 — Eliminación de Gauss-Jordan")
         self.tracer.comentario("Matriz aumentada inicial [A | B]:")
-        self.tracer.imprimir_matriz(aumentada, n)
+        self.tracer.imprimir_matriz(aumentada, n, forzar=True)
 
         for k in range(n):
             self._pivote_parcial(aumentada, k, n, n)
@@ -422,7 +510,7 @@ class LinearSolvers:
                 self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
 
         self.tracer.comentario("\nForma reducida [I | X]:")
-        self.tracer.imprimir_matriz(aumentada, n)
+        self.tracer.imprimir_matriz(aumentada, n, forzar=True)
         return [aumentada[i][n] for i in range(n)]
 
     def inversa(
@@ -433,12 +521,13 @@ class LinearSolvers:
         X = A^{-1} B con producto matriz-vector manual.
         """
         n = len(matriz_a)
+        self.tracer.resumido = n >= 8
         aumentada = [
             matriz_a[i][:] + [1.0 if i == j else 0.0 for j in range(n)] for i in range(n)
         ]
         self.tracer.encabezado("MÉTODO 3 — Matriz inversa  (X = A^{-1} B)")
         self.tracer.comentario("Matriz aumentada inicial [A | I]:")
-        self.tracer.imprimir_matriz(aumentada, n)
+        self.tracer.imprimir_matriz(aumentada, n, forzar=True)
 
         for k in range(n):
             self._pivote_parcial(aumentada, k, n, n)
@@ -488,10 +577,16 @@ class OperationsInterpreter:
         self.recursos = list(recursos)
         self.planta = planta
 
-    def interpretar(self, vector_x: Sequence[float]) -> Dict[str, Any]:
+    def interpretar(
+        self,
+        vector_x: Sequence[float],
+        matriz_a: Optional[List[List[float]]] = None,
+        vector_b: Optional[Sequence[float]] = None,
+    ) -> Dict[str, Any]:
+        n = len(vector_x)
         negativos = [
             (i, float(vector_x[i]), self.variables[i] if i < len(self.variables) else f"x{i + 1}")
-            for i in range(len(vector_x))
+            for i in range(n)
             if vector_x[i] < -EPSILON_CONSISTENCIA
         ]
         lineas_plan = []
@@ -501,9 +596,45 @@ class OperationsInterpreter:
                 f"  x_{i + 1}  {nombre}: {xi:.6f} miles de unidades / turno"
             )
 
+        consumo = (
+            _producto_matriz_vector(matriz_a, vector_x)
+            if matriz_a is not None
+            else [0.0] * n
+        )
+        balance: List[Dict[str, Any]] = []
+        n_rec = n
+        if matriz_a is not None:
+            n_rec = len(matriz_a)
+        for i in range(n_rec):
+            nombre = self.recursos[i] if i < len(self.recursos) else f"Recurso {i + 1}"
+            demanda = float(consumo[i]) if i < len(consumo) else 0.0
+            capacidad = float(vector_b[i]) if vector_b is not None and i < len(vector_b) else demanda
+            peso = 0.0
+            if matriz_a is not None and i < len(matriz_a):
+                fila = matriz_a[i]
+                peso = sum(
+                    abs(fila[j] * vector_x[j]) for j in range(min(len(fila), n))
+                )
+            balance.append(
+                {
+                    "indice": i,
+                    "nombre": nombre,
+                    "consumo": demanda,
+                    "capacidad": capacidad,
+                    "holgura": capacidad - demanda,
+                    "peso": peso,
+                }
+            )
+            lineas_plan.append(
+                f"  Recurso {i + 1}  {nombre}: consumo {demanda:.4f} / B={capacidad:.4f} "
+                f"(holgura {capacidad - demanda:.3e})"
+            )
+
+        cuellos = sorted(balance, key=lambda fila: float(fila["peso"]), reverse=True)
         negativos_json = [
             {"indice": i, "valor": valor, "nombre": nombre} for i, valor, nombre in negativos
         ]
+        cuello_txt = cuellos[0]["nombre"] if cuellos else "—"
         if negativos:
             detalle = ", ".join(
                 f"x_{i + 1} ({nombre}) = {valor:.4f}" for i, valor, nombre in negativos
@@ -522,9 +653,10 @@ class OperationsInterpreter:
             factible = False
         else:
             mensaje = (
-                f"Plan factible para {self.planta}: las seis líneas operan con cuotas "
-                "no negativas y el mix consume el 100% de la capacidad modelada en B "
-                "(cero holguras, cero cuellos de botella en el sentido AX = B)."
+                f"Plan factible para {self.planta}: las {n} líneas operan con cuotas "
+                "no negativas y el mix consume la capacidad modelada en B "
+                f"(sistema AX = B de orden {n}, holguras numéricas ~0). "
+                f"Cuello de botella (mayor peso en el mix): {cuello_txt}."
             )
             factible = True
 
@@ -533,6 +665,8 @@ class OperationsInterpreter:
             "negativos": negativos_json,
             "lineas_plan": lineas_plan,
             "mensaje": mensaje,
+            "balance_recursos": balance,
+            "cuellos_botella": cuellos,
         }
 
     def imprimir(self, resultado: Dict[str, Any]) -> None:
@@ -562,20 +696,16 @@ class TechChipAgent:
 
     def __init__(self, json_path: Optional[str] = None, modelo: Optional[Dict[str, Any]] = None) -> None:
         if modelo is not None:
-            self.modelo = modelo
+            self.modelo = normalizar_modelo(modelo)
         elif json_path:
-            self.modelo = MatrixIO.cargar_json(json_path)
+            self.modelo = normalizar_modelo(MatrixIO.cargar_json(json_path))
         else:
-            self.modelo = MatrixIO.modelo_embebido()
+            self.modelo = normalizar_modelo(MatrixIO.modelo_embebido())
 
         self.A: List[List[float]] = copy.deepcopy(self.modelo["A"])
         self.B: List[float] = list(self.modelo["B"])
-        self.variables: List[str] = list(
-            self.modelo.get("variables") or [f"x{i + 1}" for i in range(len(self.A))]
-        )
-        self.recursos: List[str] = list(
-            self.modelo.get("recursos") or [f"Recurso {i + 1}" for i in range(len(self.A))]
-        )
+        self.variables: List[str] = list(self.modelo["variables"])
+        self.recursos: List[str] = list(self.modelo["recursos"])
         self.planta: str = str(self.modelo.get("planta", "TechChip Systems S.A."))
 
     def validar(self) -> Dict[str, Any]:
@@ -653,7 +783,7 @@ class TechChipAgent:
         }
 
         interprete = OperationsInterpreter(self.variables, self.recursos, self.planta)
-        semantica = interprete.interpretar(referencia)
+        semantica = interprete.interpretar(referencia, self.A, self.B)
         if verbose:
             print("\n" + "=" * 72)
             print("VERIFICACIÓN INTER-MÉTODO Y RESIDUO")
