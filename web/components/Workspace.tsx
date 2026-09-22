@@ -34,6 +34,7 @@ export function Workspace() {
           onResolverJson={ws.resolverJson}
           onResolverMatriz={ws.resolverMatriz}
           onOrdenTexto={ws.enviarChat}
+          onLlenarEnunciado={ws.llenarDesdeEnunciado}
         />
       </div>
     </div>

@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     cors_origins: str = "http://localhost:3000"
     auth_disabled: bool = False
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
 
     @property
     def origins(self) -> List[str]:

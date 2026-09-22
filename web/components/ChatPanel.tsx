@@ -35,6 +35,7 @@ type Props = {
   onResolverJson: (texto: string, metodo: Exclude<Metodo, "all">) => Promise<void>;
   onResolverMatriz: (metodo: Exclude<Metodo, "all">) => Promise<void>;
   onOrdenTexto: (texto: string) => Promise<void>;
+  onLlenarEnunciado: (texto: string) => Promise<void>;
 };
 
 function BotonesMetodo({
@@ -77,8 +78,11 @@ export function ChatPanel({
   onResolverJson,
   onResolverMatriz,
   onOrdenTexto,
+  onLlenarEnunciado,
 }: Props) {
   const [jsonTexto, setJsonTexto] = useState("");
+  const [enunciado, setEnunciado] = useState("");
+  const [avisoEnunciado, setAvisoEnunciado] = useState<string | null>(null);
   const [pestana, setPestana] = useState<"json" | "matriz">("json");
   const listaRef = useRef<HTMLDivElement>(null);
   const corridaRef = useRef<HTMLElement>(null);
@@ -188,6 +192,31 @@ export function ChatPanel({
               </select>
             </label>
             <BotonesMetodo disabled={pending} onMetodo={(metodo) => void onResolverMatriz(metodo)} />
+            <div className="space-y-2">
+              <textarea
+                value={enunciado}
+                onChange={(e) => setEnunciado(e.target.value)}
+                rows={3}
+                placeholder="Pega el enunciado. El asistente solo llena A y B; no resuelve."
+                className="max-h-32 w-full resize-none rounded-2xl border border-line bg-background px-3 py-2 text-xs outline-none"
+              />
+              <button
+                type="button"
+                disabled={pending || !enunciado.trim()}
+                onClick={() => {
+                  setAvisoEnunciado(null);
+                  void onLlenarEnunciado(enunciado).catch((err: unknown) => {
+                    setAvisoEnunciado(
+                      err instanceof Error ? err.message : "No se pudo leer el enunciado."
+                    );
+                  });
+                }}
+                className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-background disabled:opacity-40"
+              >
+                Llenar matriz
+              </button>
+              {avisoEnunciado ? <p className="text-xs text-danger">{avisoEnunciado}</p> : null}
+            </div>
             <div className="max-h-64 overflow-auto">
               <MatrixEditor
                 A={A}

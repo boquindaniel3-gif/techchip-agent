@@ -198,6 +198,25 @@ export function useWorkspace() {
     [A, B, variables, recursos, resolver]
   );
 
+  const llenarDesdeEnunciado = useCallback(async (texto: string) => {
+    setPending(true);
+    setError(null);
+    try {
+      const data = await apiFetch<{ matriz_A: number[][]; vector_B: number[] }>(
+        "/api/v1/parse-text",
+        await tokenSesion(),
+        { method: "POST", body: JSON.stringify({ texto }) }
+      );
+      setA(data.matriz_A);
+      setB(data.vector_B);
+      setVariables(alinearNombres(undefined, data.matriz_A.length, "x{i}"));
+      setRecursos(alinearNombres(undefined, data.matriz_A.length, "Recurso {i}"));
+      setResultado(null);
+    } finally {
+      setPending(false);
+    }
+  }, []);
+
   const seleccionar = useCallback((fila: ResolucionRow) => {
     setSeleccionId(fila.id);
     setResultado({
@@ -379,6 +398,7 @@ export function useWorkspace() {
     resolver,
     resolverJson,
     resolverMatriz,
+    llenarDesdeEnunciado,
     seleccionar,
     nuevaConversacion,
     ejecutarEstres,
