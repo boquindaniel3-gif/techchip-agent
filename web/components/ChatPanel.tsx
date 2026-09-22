@@ -191,6 +191,48 @@ export function ChatPanel({
             >
               Resolver JSON
             </button>
+            <form onSubmit={onSubmit}>
+              <div className="flex items-end gap-2 rounded-2xl border border-line bg-background px-2 py-2">
+                <textarea
+                  value={texto}
+                  onChange={(e) => setTexto(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void enviar(texto);
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Orden o «resuelve» (usa solo el JSON de arriba)…"
+                  className="max-h-24 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2 py-1 text-[13px] outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  disabled={!vozOk || pending}
+                  title={vozOk ? "Dictar" : "El reconocimiento de voz no está disponible en este navegador"}
+                  aria-label={escuchando ? "Detener micrófono" : "Dictar"}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
+                    escuchando
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-line text-foreground disabled:opacity-40"
+                  }`}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    <path d="M12 18v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <button
+                  type="submit"
+                  disabled={pending || !texto.trim()}
+                  className="h-9 rounded-full bg-accent px-3 text-[13px] font-medium text-background disabled:opacity-40"
+                >
+                  Enviar
+                </button>
+              </div>
+            </form>
           </div>
         ) : (
           <div className="space-y-2">
@@ -230,52 +272,6 @@ export function ChatPanel({
             </button>
           </div>
         )}
-        <form onSubmit={onSubmit} className="mt-3">
-          <div className="flex items-end gap-2 rounded-2xl border border-line bg-background px-2 py-2">
-            <textarea
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void enviar(texto);
-                }
-              }}
-              rows={2}
-              placeholder={
-                pestana === "json"
-                  ? "Orden o «resuelve» (usa solo el JSON de arriba)…"
-                  : "Orden o «resuelve» (usa solo la matriz de arriba)…"
-              }
-              className="max-h-24 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2 py-1 text-[13px] outline-none"
-            />
-            <button
-              type="button"
-              onClick={toggleMic}
-              disabled={!vozOk || pending}
-              title={vozOk ? "Dictar" : "El reconocimiento de voz no está disponible en este navegador"}
-              aria-label={escuchando ? "Detener micrófono" : "Dictar"}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
-                escuchando
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-line text-foreground disabled:opacity-40"
-              }`}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                <path d="M12 18v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </button>
-            <button
-              type="submit"
-              disabled={pending || !texto.trim()}
-              className="h-9 rounded-full bg-accent px-3 text-[13px] font-medium text-background disabled:opacity-40"
-            >
-              Enviar
-            </button>
-          </div>
-        </form>
       </div>
     </div>
   );
