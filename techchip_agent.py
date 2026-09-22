@@ -46,6 +46,11 @@ EPSILON_REL_RESIDUO = 1e-8
 EPSILON_CONSISTENCIA = 1e-8
 DECIMALES_TRAZA = 4
 
+# NUEVO: textos exigidos por la rúbrica. La singularidad sigue decidiéndose
+# por rank(A) < n; estos strings son lo que se entrega al usuario.
+MENSAJE_SINGULAR = "det(A) = 0: infinitas o cero soluciones"
+MENSAJE_ESCASEZ = "Plan de producción inalcanzable por restricción de materias primas"
+
 # Vector exacto exigido por la Prueba Base de la guía del parcial.
 X_ESTRELLA = [15.0, 20.0, 25.0, 10.0, 15.0, 20.0]
 
@@ -817,20 +822,8 @@ class OperationsInterpreter:
         ]
         cuello_txt = cuellos[0]["nombre"] if cuellos else "—"
         if negativos:
-            detalle = ", ".join(
-                f"x_{i + 1} ({nombre}) = {valor:.4f}" for i, valor, nombre in negativos
-            )
-            alerta = (
-                "Alerta: Plan de producción inalcanzable por restricción de materias primas "
-                "(se detectaron cuotas de producción negativas)."
-            )
-            mensaje = (
-                f"{alerta}\n"
-                f"Variables no factibles: {detalle}.\n"
-                "Implicación operativa: el vector de disponibilidades B no admite un mix "
-                "de módulos no negativo que agote exactamente la capacidad instalada. "
-                "Se requiere relajar el recurso cuello de botella o redefinir el mix."
-            )
+            # NUEVO: hay alguna x_i < 0. No se entrega el plan; el texto es el de la rúbrica.
+            mensaje = MENSAJE_ESCASEZ
             factible = False
         else:
             mensaje = (
@@ -841,7 +834,7 @@ class OperationsInterpreter:
             )
             factible = True
 
-        if numericamente_inestable:
+        if numericamente_inestable and not negativos:
             aviso = (
                 f"Advertencia numérica: ||AX−B|| / max(||B||,1) = {residual_relativo:.3e}. "
                 "La solución puede ser inestable (matriz mal condicionada); "
@@ -930,18 +923,9 @@ class TechChipAgent:
         if diagnostico["singular"]:
             familia = analizar_familia(self.A, self.B, self.variables)
             diagnostico["familia"] = familia
-            if familia.get("compatible"):
-                diagnostico["mensaje"] = (
-                    "Alerta de Singularidad: rank(A) < n. "
-                    "Diagnóstico: Sistema compatible indeterminado. "
-                    f"{familia['expresion']}"
-                )
-            else:
-                diagnostico["mensaje"] = (
-                    "Alerta de Singularidad: rank(A) < n. "
-                    "Diagnóstico: Sistema Incompatible. "
-                    f"{familia['expresion']}"
-                )
+            # NUEVO: rank(A) < n. No se ejecutan Gauss / Gauss-Jordan / inversa.
+            # La familia paramétrica queda en diagnostico["familia"].
+            diagnostico["mensaje"] = MENSAJE_SINGULAR
         if verbose:
             print("\n" + "#" * 72)
             print(f"AGENTE TECHCHIP  |  {self.planta}")
@@ -1021,6 +1005,8 @@ class TechChipAgent:
             print(f"  Residual relativo: {residual_relativo:.3e}")
             interprete.imprimir(semantica)
 
+        # NUEVO: el X calculado queda en soluciones; no se entrega como plan.
+        plan_rechazado = bool(semantica.get("negativos"))
         return {
             "diagnostico": diagnostico,
             "abortado": False,
@@ -1028,7 +1014,7 @@ class TechChipAgent:
             "residuos": residuos,
             "sesgos": sesgos,
             "semantica": semantica,
-            "x": referencia,
+            "x": None if plan_rechazado else referencia,
             "traza": list(tracer.historial),
             "metodo": metodo,
             "metodo_elegido": metodo_elegido,
@@ -1042,6 +1028,40 @@ class TechChipAgent:
 # ===========================================================================
 # Pruebas de validación y escenarios extremos (guía del parcial)
 # ===========================================================================
+
+
+def test_escasez() -> str:
+    """# NUEVO: inyecta B_3 = 100 y exige la alerta de escasez."""
+    modelo = MatrixIO.modelo_embebido()
+    modelo["B"][2] = 100.0
+    resultado = TechChipAgent(modelo=modelo).resolver(method="gauss-jordan", verbose=False)
+    mensaje = (resultado.get("semantica") or {}).get("mensaje")
+    soluciones = resultado.get("soluciones") or {}
+    hay_negativo = any(valor < -EPSILON_CONSISTENCIA for vector in soluciones.values() for valor in vector)
+    if mensaje != MENSAJE_ESCASEZ or resultado.get("x") is not None or not hay_negativo:
+        raise AssertionError(
+            f"Se esperaba {MENSAJE_ESCASEZ!r} sin entregar X; "
+            f"mensaje={mensaje!r} x={resultado.get('x')!r} negativo={hay_negativo}."
+        )
+    return mensaje
+
+
+def test_degenerado() -> str:
+    """# NUEVO: F6 = 2 F1. Debe abortar antes de Gauss con el texto de singularidad."""
+    modelo = MatrixIO.modelo_embebido()
+    modelo["A"][5] = [2.0 * c for c in modelo["A"][0]]
+    try:
+        resultado = TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+    except SingularSystemError as error:
+        mensaje = (error.diagnostico or {}).get("mensaje") or str(error)
+        if mensaje != MENSAJE_SINGULAR:
+            raise AssertionError(f"Se esperaba {MENSAJE_SINGULAR!r}; llegó {mensaje!r}.") from error
+        return mensaje
+    soluciones = resultado.get("soluciones") or {}
+    raise AssertionError(
+        "El agente no abortó pese a rank(A) < n. "
+        f"soluciones={list(soluciones)}."
+    )
 
 
 class StressSuite:
@@ -1084,44 +1104,18 @@ class StressSuite:
         self._registrar("2. Sustitución directa  ||AX-B|| < 1e-6", ok, detalle)
 
     def prueba_escasez(self) -> None:
-        modelo = MatrixIO.modelo_embebido()
-        modelo["B"][2] = 100.0  # Resina reducida a 100 kg (índice 0-basado 2)
-        agente = TechChipAgent(modelo=modelo)
-        resultado = agente.resolver(method="gauss-jordan", verbose=False)
-        semantica = resultado["semantica"]
-        ok = (not semantica["factible"]) and len(semantica["negativos"]) > 0
-        x = resultado["x"]
-        self._registrar(
-            "3. Escenario de Escasez  B3 = 100 kg",
-            ok,
-            f"X={[round(v, 4) for v in x]}  factible={semantica['factible']}",
-        )
-        if self.imprimir:
-            print("        " + semantica["mensaje"].split("\n")[0])
+        try:
+            mensaje = test_escasez()
+            self._registrar("3. Escenario de Escasez  B3 = 100 kg", True, mensaje)
+        except AssertionError as error:
+            self._registrar("3. Escenario de Escasez  B3 = 100 kg", False, str(error))
 
     def prueba_degenerado(self) -> None:
-        modelo = MatrixIO.modelo_embebido()
-        # F_6 <- 2 F_1  (combinación lineal exacta de filas de A; B no se altera)
-        modelo["A"][5] = [2.0 * c for c in modelo["A"][0]]
-        agente = TechChipAgent(modelo=modelo)
         try:
-            agente.resolver(method="all", verbose=False)
-            self._registrar(
-                "4. Escenario Degenerado  F6 = 2 F1",
-                False,
-                "El agente no abortó pese a det(A) = 0.",
-            )
-        except SingularSystemError as error:
-            diag = error.diagnostico
-            ok = (
-                bool(diag.get("singular"))
-                and diag.get("clasificacion") in {"incompatible", "indeterminado"}
-            )
-            self._registrar(
-                "4. Escenario Degenerado  F6 = 2 F1",
-                ok,
-                diag.get("mensaje", str(error)),
-            )
+            mensaje = test_degenerado()
+            self._registrar("4. Escenario Degenerado  F6 = 2 F1", True, mensaje)
+        except AssertionError as error:
+            self._registrar("4. Escenario Degenerado  F6 = 2 F1", False, str(error))
 
     def ejecutar(self) -> int:
         resumen = self.ejecutar_detalle()

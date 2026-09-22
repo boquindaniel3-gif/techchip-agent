@@ -43,28 +43,17 @@ function previewB(B: number[]): string {
 function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number, B?: number[]): string {
   const sistema = B ? ` Sistema enviado: n=${n}, ${previewB(B)}.` : "";
   const clasificacion = data.diagnostico?.clasificacion;
-  const familia = data.diagnostico?.familia;
-  if (clasificacion === "incompatible") {
-    return (
-      `No es posible: el sistema es incompatible (cero soluciones, n=${n}). ` +
-      (familia?.expresion ?? data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "") +
-      sistema
-    );
+  const escasez =
+    data.semantica?.factible === false && (data.semantica.negativos?.length ?? 0) > 0;
+  if (clasificacion === "incompatible" || clasificacion === "indeterminado") {
+    return data.diagnostico?.mensaje ?? data.semantica?.mensaje ?? "det(A) = 0: infinitas o cero soluciones";
   }
-  if (clasificacion === "indeterminado") {
-    const libres = familia?.libres_nombres?.length
-      ? familia.libres_nombres.join(", ")
-      : (familia?.libres ?? []).map((i) => `x${i}`).join(", ");
-    const forma = familia?.lineas?.length ? ` ${familia.lineas.join(" | ")}` : "";
+  if (escasez || !data.x) {
     return (
-      `Hay varias combinaciones posibles (${familia?.grados_libertad ?? "?"} grado(s) de libertad` +
-      (libres ? `; libres: ${libres}` : "") +
-      `).${forma}` +
-      sistema
+      data.semantica?.mensaje ??
+      data.diagnostico?.mensaje ??
+      "Sistema singular o abortado."
     );
-  }
-  if (!data.x) {
-    return (data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "Sistema singular o abortado.") + sistema;
   }
   const elegido = data.diagnostico?.metodo_elegido;
   const residuoElegido = elegido ? data.residuos?.[elegido]?.norma_euclidea : undefined;

@@ -14,7 +14,8 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
     semantica?.factible === false ||
     diag.numericamente_inestable === true ||
     incompatible;
-  const balance = semantica?.balance_recursos ?? [];
+  const escasez = semantica?.factible === false && (semantica?.negativos?.length ?? 0) > 0;
+  const balance = escasez ? [] : (semantica?.balance_recursos ?? []);
   const cuellos = semantica?.cuellos_botella ?? [];
   const lineasFamilia = familia?.lineas?.length ? familia.lineas : semantica?.lineas_plan ?? [];
 
@@ -63,11 +64,7 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
           </div>
         </dl>
         <p className={`mt-3 text-sm ${alerta ? "text-danger" : "text-muted"}`}>
-          {incompatible
-            ? (familia?.expresion ?? semantica?.mensaje ?? diag.mensaje ?? "El sistema no tiene solución.")
-            : indeterminado
-              ? (familia?.expresion ?? semantica?.mensaje ?? diag.mensaje)
-              : (semantica?.mensaje ?? diag.mensaje)}
+          {semantica?.mensaje ?? diag.mensaje ?? "Sin diagnóstico."}
         </p>
       </div>
 
@@ -124,7 +121,7 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
         </div>
       ) : null}
 
-      {resultado.x ? (
+      {resultado.x && !escasez ? (
         <div className="rounded-2xl border border-line bg-card p-4">
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
             Vector X
@@ -184,7 +181,7 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
         </div>
       ) : null}
 
-      {semantica?.lineas_plan?.length && !indeterminado && !incompatible ? (
+      {semantica?.lineas_plan?.length && !indeterminado && !incompatible && !escasez ? (
         <div className="rounded-2xl border border-line bg-card p-4">
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
             Interpretación operativa
