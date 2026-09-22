@@ -96,6 +96,9 @@ export type ResolucionRow = {
   x: number[] | null;
   diagnostico: Diagnostico | null;
   semantica: Semantica | null;
+  traza?: string[];
+  soluciones?: Record<string, number[]>;
+  residuos?: Record<string, { norma_euclidea: number; norma_inf?: number }>;
   abortado: boolean;
   created_at: string;
 };

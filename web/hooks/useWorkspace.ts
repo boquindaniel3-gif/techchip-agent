@@ -8,6 +8,7 @@ import {
   alinearNombres,
   modelo8x8,
   modeloBase,
+  parsearModeloJson,
   redimensionarSistema,
 } from "@/lib/modelos";
 import type {
@@ -34,13 +35,20 @@ const SALUDO: ChatMessage = {
   text: TEXTO_AYUDA,
 };
 
-function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number): string {
+function previewB(B: number[]): string {
+  const muestra = B.slice(0, 4).map((v) => v.toFixed(2)).join(", ");
+  return `B=[${muestra}${B.length > 4 ? ", …" : ""}]`;
+}
+
+function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number, B?: number[]): string {
+  const sistema = B ? ` Sistema enviado: n=${n}, ${previewB(B)}.` : "";
   const clasificacion = data.diagnostico?.clasificacion;
   const familia = data.diagnostico?.familia;
   if (clasificacion === "incompatible") {
     return (
       `No es posible: el sistema es incompatible (cero soluciones, n=${n}). ` +
-      (familia?.expresion ?? data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "")
+      (familia?.expresion ?? data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "") +
+      sistema
     );
   }
   if (clasificacion === "indeterminado") {
@@ -51,11 +59,12 @@ function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number): str
     return (
       `Hay varias combinaciones posibles (${familia?.grados_libertad ?? "?"} grado(s) de libertad` +
       (libres ? `; libres: ${libres}` : "") +
-      `).${forma}`
+      `).${forma}` +
+      sistema
     );
   }
   if (!data.x) {
-    return data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "Sistema singular o abortado.";
+    return (data.semantica?.mensaje ?? data.diagnostico?.mensaje ?? "Sistema singular o abortado.") + sistema;
   }
   const elegido = data.diagnostico?.metodo_elegido;
   const residuoElegido = elegido ? data.residuos?.[elegido]?.norma_euclidea : undefined;
@@ -75,7 +84,8 @@ function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number): str
     `X = [${data.x.map((v) => v.toFixed(6)).join(", ")}]` +
     residuoTxt +
     relTxt +
-    aviso
+    aviso +
+    sistema
   );
 }
 
@@ -90,21 +100,29 @@ export function useWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResolverResult | null>(null);
   const [historial, setHistorial] = useState<ResolucionRow[]>([]);
+  const [seleccionId, setSeleccionId] = useState<string | null>(null);
   const [estres, setEstres] = useState<EstresResult | null>(null);
   const [mensajes, setMensajes] = useState<ChatMessage[]>([SALUDO]);
 
   const n = A.length;
 
-  const aplicarModelo = useCallback(
+  const cargarMatrices = useCallback(
     (modelo: { A: number[][]; B: number[]; variables: string[]; recursos: string[] }) => {
       setA(modelo.A);
       setB(modelo.B);
       setVariables(modelo.variables);
       setRecursos(modelo.recursos);
-      setResultado(null);
       setError(null);
     },
     []
+  );
+
+  const aplicarModelo = useCallback(
+    (modelo: { A: number[][]; B: number[]; variables: string[]; recursos: string[] }) => {
+      cargarMatrices(modelo);
+      setResultado(null);
+    },
+    [cargarMatrices]
   );
 
   const cargarHistorial = useCallback(async () => {
@@ -145,7 +163,8 @@ export function useWorkspace() {
         setResultado(data);
         setMethod(metodo);
         await cargarHistorial();
-        return redactarRespuesta(data, metodo, matrizA.length);
+        if (data.id) setSeleccionId(data.id);
+        return redactarRespuesta(data, metodo, matrizA.length, vectorB);
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "No se pudo resolver.";
         setError(mensaje);
@@ -156,6 +175,81 @@ export function useWorkspace() {
     },
     [A, B, method, variables, recursos, cargarHistorial]
   );
+
+  const resolverJson = useCallback(
+    async (texto: string, etiqueta = "Resolver JSON") => {
+      setMensajes((prev) => [...prev, { id: nuevoId(), role: "user", text: etiqueta }]);
+      try {
+        const cerca = texto.trim();
+        const fenced = cerca.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        const cuerpo = (fenced ? fenced[1] : cerca).trim();
+        const inicio = cuerpo.indexOf("{");
+        const fin = cuerpo.lastIndexOf("}");
+        const json =
+          inicio >= 0 && fin > inicio ? cuerpo.slice(inicio, fin + 1) : cuerpo;
+        const modelo = parsearModeloJson(JSON.parse(json));
+        cargarMatrices(modelo);
+        const respuesta = await resolver(
+          "all",
+          modelo.A,
+          modelo.B,
+          modelo.variables,
+          modelo.recursos
+        );
+        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: respuesta }]);
+      } catch (err) {
+        const mensaje = err instanceof Error ? err.message : "JSON inválido.";
+        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: mensaje }]);
+      }
+    },
+    [cargarMatrices, resolver]
+  );
+
+  const resolverMatriz = useCallback(
+    async (etiqueta = "Resolver matriz") => {
+      setMensajes((prev) => [...prev, { id: nuevoId(), role: "user", text: etiqueta }]);
+      try {
+        const respuesta = await resolver("all", A, B, variables, recursos);
+        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: respuesta }]);
+      } catch (err) {
+        const mensaje = err instanceof Error ? err.message : "No se pudo resolver la matriz.";
+        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: mensaje }]);
+      }
+    },
+    [A, B, variables, recursos, resolver]
+  );
+
+  const seleccionar = useCallback((fila: ResolucionRow) => {
+    setSeleccionId(fila.id);
+    setResultado({
+      id: fila.id,
+      diagnostico: fila.diagnostico ?? {},
+      abortado: fila.abortado,
+      x: fila.x,
+      A: fila.a ?? undefined,
+      B: fila.b ?? undefined,
+      soluciones: fila.soluciones ?? {},
+      residuos: fila.residuos ?? {},
+      semantica: fila.semantica ?? undefined,
+      traza: fila.traza ?? [],
+      metodo: fila.metodo,
+    });
+    if (fila.a && fila.b) {
+      const orden = fila.a.length;
+      setA(fila.a);
+      setB(fila.b);
+      setVariables(alinearNombres(undefined, orden, "x{i}"));
+      setRecursos(alinearNombres(undefined, orden, "Recurso {i}"));
+    }
+    setError(null);
+  }, []);
+
+  const nuevaConversacion = useCallback(() => {
+    setMensajes([SALUDO]);
+    setResultado(null);
+    setSeleccionId(null);
+    setError(null);
+  }, []);
 
   const ejecutarEstres = useCallback(async () => {
     setPending(true);
@@ -181,7 +275,7 @@ export function useWorkspace() {
     (siguiente: number) => {
       const modelo = redimensionarSistema(A, B, variables, recursos, siguiente);
       aplicarModelo(modelo);
-      return `Orden n = ${siguiente}. Completé o recorté A y B. Revisa el dashboard y resuelve.`;
+      return `Orden n = ${siguiente}. Completé o recorté la matriz. Resuélvela desde la pestaña Matriz.`;
     },
     [A, B, variables, recursos, aplicarModelo]
   );
@@ -214,7 +308,7 @@ export function useWorkspace() {
             break;
           }
           case "json": {
-            aplicarModelo({
+            cargarMatrices({
               A: intent.A,
               B: intent.B,
               variables: intent.variables ?? alinearNombres(undefined, intent.A.length, "x{i}"),
@@ -230,7 +324,8 @@ export function useWorkspace() {
             break;
           }
           case "resolver":
-            respuesta = await resolver(intent.method);
+            respuesta =
+              "Elige la pestaña JSON o Matriz y pulsa resolver. «Resuelve» usa solo la pestaña abierta, no la otra entrada.";
             break;
           case "escasez": {
             if (B.length < 3) throw new Error("Hace falta n ≥ 3 para el escenario de escasez (B₃).");
@@ -253,7 +348,7 @@ export function useWorkspace() {
             break;
           case "historial":
             await cargarHistorial();
-            respuesta = "Historial recargado en el dashboard.";
+            respuesta = "Historial recargado a la izquierda.";
             break;
           case "redimensionar":
             respuesta = cambiarOrden(intent.n);
@@ -273,6 +368,7 @@ export function useWorkspace() {
       variables,
       recursos,
       aplicarModelo,
+      cargarMatrices,
       resolver,
       ejecutarEstres,
       cargarHistorial,
@@ -291,6 +387,7 @@ export function useWorkspace() {
     error,
     resultado,
     historial,
+    seleccionId,
     estres,
     mensajes,
     setA,
@@ -301,6 +398,10 @@ export function useWorkspace() {
     aplicarModelo,
     cambiarOrden,
     resolver,
+    resolverJson,
+    resolverMatriz,
+    seleccionar,
+    nuevaConversacion,
     ejecutarEstres,
     enviarChat,
   };
