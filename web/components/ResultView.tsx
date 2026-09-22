@@ -2,6 +2,21 @@
 
 import type { ResolverResult } from "@/lib/types";
 
+function partirTraza(traza: string[]): { intro: string[]; abajo: string[]; arriba: string[] } {
+  const intro: string[] = [];
+  const abajo: string[] = [];
+  const arriba: string[] = [];
+  let fase: "intro" | "abajo" | "arriba" = "intro";
+  for (const linea of traza) {
+    if (/Hacia abajo/i.test(linea)) fase = "abajo";
+    else if (/Hacia arriba/i.test(linea)) fase = "arriba";
+    if (fase === "abajo") abajo.push(linea);
+    else if (fase === "arriba") arriba.push(linea);
+    else intro.push(linea);
+  }
+  return { intro, abajo, arriba };
+}
+
 export function ResultView({ resultado }: { resultado: ResolverResult }) {
   const diag = resultado.diagnostico ?? {};
   const semantica = resultado.semantica;
@@ -192,16 +207,42 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
         </div>
       ) : null}
 
-      {resultado.traza?.length ? (
-        <div className="rounded-2xl border border-line bg-card p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Traza analítica de filas
-          </h2>
-          <pre className="mt-3 max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-muted">
-            {resultado.traza.join("\n")}
-          </pre>
-        </div>
-      ) : null}
+      {resultado.traza?.length ? <TrazaDirigida traza={resultado.traza} /> : null}
     </section>
+  );
+}
+
+function BloqueTraza({ titulo, lineas }: { titulo: string; lineas: string[] }) {
+  if (!lineas.length) return null;
+  return (
+    <div>
+      <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">{titulo}</h3>
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-muted">
+        {lineas.join("\n")}
+      </pre>
+    </div>
+  );
+}
+
+function TrazaDirigida({ traza }: { traza: string[] }) {
+  const partes = partirTraza(traza);
+  const partida = partes.abajo.length > 0 || partes.arriba.length > 0;
+  return (
+    <div className="rounded-2xl border border-line bg-card p-4">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+        Traza analítica de filas
+      </h2>
+      {partida ? (
+        <div className="mt-3 space-y-4">
+          <BloqueTraza titulo="Inicio" lineas={partes.intro} />
+          <BloqueTraza titulo="Hacia abajo" lineas={partes.abajo} />
+          <BloqueTraza titulo="Hacia arriba" lineas={partes.arriba} />
+        </div>
+      ) : (
+        <pre className="mt-3 max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-muted">
+          {traza.join("\n")}
+        </pre>
+      )}
+    </div>
   );
 }

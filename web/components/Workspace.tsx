@@ -31,9 +31,9 @@ export function Workspace() {
           onOrden={(orden) => {
             ws.cambiarOrden(orden);
           }}
-          onEnviar={ws.enviarChat}
           onResolverJson={ws.resolverJson}
           onResolverMatriz={ws.resolverMatriz}
+          onOrdenTexto={ws.enviarChat}
         />
       </div>
     </div>

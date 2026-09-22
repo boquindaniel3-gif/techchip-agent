@@ -581,8 +581,10 @@ class RowOperationTracer:
     def eliminacion(
         self, i: int, k: int, multiplicador: float, matriz: List[List[float]], n_izq: int
     ) -> None:
+        # NUEVO: i > k borra bajo el pivote; i < k borra sobre el pivote.
+        sentido = "Hacia abajo" if i > k else "Hacia arriba"
         self._emitir(
-            f"Operación analítica: F_{i + 1} <- F_{i + 1} - ({_formato_numero(multiplicador)}) * F_{k + 1}"
+            f"{sentido}. Operación analítica: F_{i + 1} <- F_{i + 1} - ({_formato_numero(multiplicador)}) * F_{k + 1}"
         )
         self.imprimir_matriz(matriz, n_izq)
 
@@ -652,7 +654,9 @@ class LinearSolvers:
                     aumentada[i][j] -= multiplicador * aumentada[k][j]
                 self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
 
-        self.tracer.comentario("\nMatriz triangular superior [U | c]. Sustitución hacia atrás:")
+        self.tracer.comentario(
+            "\nHacia arriba. Matriz triangular superior [U | c]. Sustitución hacia atrás:"
+        )
         self.tracer.imprimir_matriz(aumentada, n, forzar=True)
         solucion = [0.0] * n
         for i in range(n - 1, -1, -1):
@@ -732,14 +736,14 @@ class LinearSolvers:
                 self.tracer.eliminacion(i, k, multiplicador, aumentada, n)
 
         inversa_a = [aumentada[i][n:] for i in range(n)]
-        self.tracer.comentario("\nMatriz inversa A^{-1}:")
+        self.tracer.comentario("\nHacia arriba. Matriz inversa A^{-1}:")
         for fila in inversa_a:
             self.tracer.comentario(
                 "  [" + " ".join(f"{v:10.{DECIMALES_TRAZA}f}" for v in fila) + " ]"
             )
 
         solucion = _producto_matriz_vector(inversa_a, vector_b)
-        self.tracer.comentario("Evaluación X = A^{-1} B:")
+        self.tracer.comentario("Hacia arriba. Evaluación X = A^{-1} B:")
         for i, xi in enumerate(solucion):
             self.tracer.comentario(f"  x_{i + 1} = {_formato_numero(xi, 6)}")
         return solucion, inversa_a

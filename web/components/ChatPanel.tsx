@@ -1,34 +1,23 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MatrixEditor } from "@/components/MatrixEditor";
 import { ResultView } from "@/components/ResultView";
-import { interpretarMensaje } from "@/lib/intents";
 import { N_MAX, N_MIN } from "@/lib/modelos";
-import type { ResolverResult } from "@/lib/types";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, Metodo, ResolverResult } from "@/lib/types";
 
-type SpeechRec = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-};
+const ORDENES = [
+  { etiqueta: "Modelo base", texto: "modelo base" },
+  { etiqueta: "Escasez", texto: "escasez" },
+  { etiqueta: "Degenerado", texto: "degenerado" },
+  { etiqueta: "Estrés", texto: "estrés" },
+];
 
-function obtenerReconocimiento(): SpeechRec | null {
-  if (typeof window === "undefined") return null;
-  const Ctor =
-    (window as Window & { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec })
-      .SpeechRecognition ??
-    (window as Window & { webkitSpeechRecognition?: new () => SpeechRec }).webkitSpeechRecognition;
-  if (!Ctor) return null;
-  return new Ctor();
-}
+const METODOS: { id: Exclude<Metodo, "all">; label: string }[] = [
+  { id: "gauss", label: "Gauss" },
+  { id: "gauss-jordan", label: "Gauss-Jordan" },
+  { id: "inversa", label: "Inversa" },
+];
 
 type Props = {
   mensajes: ChatMessage[];
@@ -43,10 +32,34 @@ type Props = {
   onChangeVariables: (variables: string[]) => void;
   onChangeRecursos: (recursos: string[]) => void;
   onOrden: (n: number) => void;
-  onEnviar: (texto: string) => Promise<void>;
-  onResolverJson: (texto: string, etiqueta?: string) => Promise<void>;
-  onResolverMatriz: (etiqueta?: string) => Promise<void>;
+  onResolverJson: (texto: string, metodo: Exclude<Metodo, "all">) => Promise<void>;
+  onResolverMatriz: (metodo: Exclude<Metodo, "all">) => Promise<void>;
+  onOrdenTexto: (texto: string) => Promise<void>;
 };
+
+function BotonesMetodo({
+  disabled,
+  onMetodo,
+}: {
+  disabled: boolean;
+  onMetodo: (metodo: Exclude<Metodo, "all">) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {METODOS.map((metodo) => (
+        <button
+          key={metodo.id}
+          type="button"
+          disabled={disabled}
+          onClick={() => onMetodo(metodo.id)}
+          className="rounded-full border border-line px-3 py-1.5 text-xs font-medium hover:border-foreground disabled:opacity-40"
+        >
+          {metodo.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function ChatPanel({
   mensajes,
@@ -61,75 +74,22 @@ export function ChatPanel({
   onChangeVariables,
   onChangeRecursos,
   onOrden,
-  onEnviar,
   onResolverJson,
   onResolverMatriz,
+  onOrdenTexto,
 }: Props) {
-  const [texto, setTexto] = useState("");
   const [jsonTexto, setJsonTexto] = useState("");
   const [pestana, setPestana] = useState<"json" | "matriz">("json");
-  const [escuchando, setEscuchando] = useState(false);
-  const [vozOk, setVozOk] = useState(false);
   const listaRef = useRef<HTMLDivElement>(null);
-  const recRef = useRef<SpeechRec | null>(null);
-
-  useEffect(() => {
-    setVozOk(obtenerReconocimiento() !== null);
-  }, []);
+  const corridaRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight, behavior: "smooth" });
-  }, [mensajes, pending, resultado]);
+  }, [mensajes, pending]);
 
-  async function enviar(valor: string) {
-    const limpio = valor.trim();
-    if (!limpio || pending) return;
-    setTexto("");
-    const intent = interpretarMensaje(limpio);
-    if (intent.type === "resolver") {
-      if (pestana === "json") await onResolverJson(jsonTexto, limpio);
-      else await onResolverMatriz(limpio);
-      return;
-    }
-    await onEnviar(limpio);
-  }
-
-  function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    void enviar(texto);
-  }
-
-  function toggleMic() {
-    if (escuchando) {
-      recRef.current?.stop();
-      setEscuchando(false);
-      return;
-    }
-    const rec = obtenerReconocimiento();
-    if (!rec) return;
-    recRef.current = rec;
-    rec.lang = "es-CR";
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      if (transcript) void enviar(transcript);
-    };
-    rec.onerror = () => setEscuchando(false);
-    rec.onend = () => setEscuchando(false);
-    try {
-      rec.start();
-      setEscuchando(true);
-    } catch {
-      rec.lang = "es-ES";
-      try {
-        rec.start();
-        setEscuchando(true);
-      } catch {
-        setEscuchando(false);
-      }
-    }
-  }
+  useEffect(() => {
+    corridaRef.current?.scrollTo({ top: 0 });
+  }, [resultado]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -150,10 +110,33 @@ export function ChatPanel({
             {msg.text}
           </div>
         ))}
-        {resultado ? <ResultView resultado={resultado} /> : null}
         {pending ? <p className="text-xs text-muted">Trabajando…</p> : null}
       </div>
+      {resultado ? (
+        <section
+          ref={corridaRef}
+          className="max-h-[45%] shrink-0 space-y-3 overflow-y-auto border-t border-line px-4 py-4"
+        >
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+            Corrida activa
+          </h2>
+          <ResultView resultado={resultado} />
+        </section>
+      ) : null}
       <div className="border-t border-line bg-card p-3">
+        <div className="mb-2 flex flex-wrap gap-1">
+          {ORDENES.map((orden) => (
+            <button
+              key={orden.texto}
+              type="button"
+              disabled={pending}
+              onClick={() => void onOrdenTexto(orden.texto)}
+              className="rounded-full border border-line px-3 py-1 text-xs text-muted hover:border-foreground hover:text-foreground disabled:opacity-40"
+            >
+              {orden.etiqueta}
+            </button>
+          ))}
+        </div>
         <div className="mb-2 flex gap-1">
           <button
             type="button"
@@ -183,56 +166,10 @@ export function ChatPanel({
               placeholder='{"A":[[2,1],[1,3]],"B":[8,13]}'
               className="max-h-40 w-full resize-none rounded-2xl border border-line bg-background px-3 py-2 font-mono text-xs outline-none"
             />
-            <button
-              type="button"
+            <BotonesMetodo
               disabled={pending || !jsonTexto.trim()}
-              onClick={() => void onResolverJson(jsonTexto)}
-              className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-background disabled:opacity-40"
-            >
-              Resolver JSON
-            </button>
-            <form onSubmit={onSubmit}>
-              <div className="flex items-end gap-2 rounded-2xl border border-line bg-background px-2 py-2">
-                <textarea
-                  value={texto}
-                  onChange={(e) => setTexto(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void enviar(texto);
-                    }
-                  }}
-                  rows={2}
-                  placeholder="Orden o «resuelve» (usa solo el JSON de arriba)…"
-                  className="max-h-24 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2 py-1 text-[13px] outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={toggleMic}
-                  disabled={!vozOk || pending}
-                  title={vozOk ? "Dictar" : "El reconocimiento de voz no está disponible en este navegador"}
-                  aria-label={escuchando ? "Detener micrófono" : "Dictar"}
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
-                    escuchando
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-line text-foreground disabled:opacity-40"
-                  }`}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
-                    <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                    <path d="M12 18v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </button>
-                <button
-                  type="submit"
-                  disabled={pending || !texto.trim()}
-                  className="h-9 rounded-full bg-accent px-3 text-[13px] font-medium text-background disabled:opacity-40"
-                >
-                  Enviar
-                </button>
-              </div>
-            </form>
+              onMetodo={(metodo) => void onResolverJson(jsonTexto, metodo)}
+            />
           </div>
         ) : (
           <div className="space-y-2">
@@ -250,6 +187,7 @@ export function ChatPanel({
                 ))}
               </select>
             </label>
+            <BotonesMetodo disabled={pending} onMetodo={(metodo) => void onResolverMatriz(metodo)} />
             <div className="max-h-64 overflow-auto">
               <MatrixEditor
                 A={A}
@@ -262,14 +200,7 @@ export function ChatPanel({
                 onChangeRecursos={onChangeRecursos}
               />
             </div>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => void onResolverMatriz()}
-              className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-background disabled:opacity-40"
-            >
-              Resolver matriz
-            </button>
+            <BotonesMetodo disabled={pending} onMetodo={(metodo) => void onResolverMatriz(metodo)} />
           </div>
         )}
       </div>

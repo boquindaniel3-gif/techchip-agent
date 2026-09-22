@@ -166,8 +166,7 @@ export function useWorkspace() {
   );
 
   const resolverJson = useCallback(
-    async (texto: string, etiqueta = "Resolver JSON") => {
-      setMensajes((prev) => [...prev, { id: nuevoId(), role: "user", text: etiqueta }]);
+    async (texto: string, metodo: Metodo) => {
       try {
         const cerca = texto.trim();
         const fenced = cerca.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -178,14 +177,7 @@ export function useWorkspace() {
           inicio >= 0 && fin > inicio ? cuerpo.slice(inicio, fin + 1) : cuerpo;
         const modelo = parsearModeloJson(JSON.parse(json));
         cargarMatrices(modelo);
-        const respuesta = await resolver(
-          "all",
-          modelo.A,
-          modelo.B,
-          modelo.variables,
-          modelo.recursos
-        );
-        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: respuesta }]);
+        await resolver(metodo, modelo.A, modelo.B, modelo.variables, modelo.recursos);
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "JSON inválido.";
         setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: mensaje }]);
@@ -195,11 +187,9 @@ export function useWorkspace() {
   );
 
   const resolverMatriz = useCallback(
-    async (etiqueta = "Resolver matriz") => {
-      setMensajes((prev) => [...prev, { id: nuevoId(), role: "user", text: etiqueta }]);
+    async (metodo: Metodo) => {
       try {
-        const respuesta = await resolver("all", A, B, variables, recursos);
-        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: respuesta }]);
+        await resolver(metodo, A, B, variables, recursos);
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "No se pudo resolver la matriz.";
         setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: mensaje }]);
