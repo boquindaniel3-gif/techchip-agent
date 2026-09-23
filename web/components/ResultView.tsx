@@ -1,5 +1,6 @@
 "use client";
 
+import { MatrixStepViewer, parsearTraza } from "@/components/MatrixStepViewer";
 import type { ResolverResult } from "@/lib/types";
 
 export function ResultView({ resultado }: { resultado: ResolverResult }) {
@@ -193,13 +194,34 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
       ) : null}
 
       {resultado.traza?.length ? (
-        <div className="rounded-2xl border border-line bg-card p-4">
+        <div className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
             Traza analítica de filas
           </h2>
-          <pre className="mt-3 max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-muted">
-            {resultado.traza.join("\n")}
-          </pre>
+          <div className="max-h-[28rem] space-y-3 overflow-auto">
+            {parsearTraza(resultado.traza).map((paso, indice) =>
+              paso.tipo === "separador" ? (
+                <p
+                  key={`sep-${indice}`}
+                  className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted"
+                >
+                  {paso.texto}
+                </p>
+              ) : paso.matrix ? (
+                <MatrixStepViewer
+                  key={`paso-${indice}`}
+                  matrix={paso.matrix}
+                  augmentedVector={paso.augmentedVector}
+                  operationText={paso.operationText}
+                  highlightRowIndex={paso.highlightRowIndex}
+                />
+              ) : (
+                <p key={`txt-${indice}`} className="font-mono text-[11px] leading-5 text-muted">
+                  {paso.operationText}
+                </p>
+              )
+            )}
+          </div>
         </div>
       ) : null}
     </section>

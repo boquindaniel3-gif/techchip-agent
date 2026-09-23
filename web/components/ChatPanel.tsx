@@ -6,17 +6,11 @@ import { ResultView } from "@/components/ResultView";
 import { N_MAX, N_MIN } from "@/lib/modelos";
 import type { ChatMessage, Metodo, ResolverResult } from "@/lib/types";
 
-const ORDENES = [
-  { etiqueta: "Modelo base", texto: "modelo base" },
-  { etiqueta: "Escasez", texto: "escasez" },
-  { etiqueta: "Degenerado", texto: "degenerado" },
-  { etiqueta: "Estrés", texto: "estrés" },
-];
-
-const METODOS: { id: Exclude<Metodo, "all">; label: string }[] = [
+const METODOS: { id: Metodo; label: string }[] = [
   { id: "gauss", label: "Gauss" },
   { id: "gauss-jordan", label: "Gauss-Jordan" },
   { id: "inversa", label: "Inversa" },
+  { id: "all", label: "Todos" },
 ];
 
 type Props = {
@@ -32,9 +26,8 @@ type Props = {
   onChangeVariables: (variables: string[]) => void;
   onChangeRecursos: (recursos: string[]) => void;
   onOrden: (n: number) => void;
-  onResolverJson: (texto: string, metodo: Exclude<Metodo, "all">) => Promise<void>;
-  onResolverMatriz: (metodo: Exclude<Metodo, "all">) => Promise<void>;
-  onOrdenTexto: (texto: string) => Promise<void>;
+  onResolverJson: (texto: string, metodo: Metodo) => Promise<void>;
+  onResolverMatriz: (metodo: Metodo) => Promise<void>;
   onLlenarEnunciado: (texto: string) => Promise<void>;
 };
 
@@ -43,7 +36,7 @@ function BotonesMetodo({
   onMetodo,
 }: {
   disabled: boolean;
-  onMetodo: (metodo: Exclude<Metodo, "all">) => void;
+  onMetodo: (metodo: Metodo) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -53,7 +46,11 @@ function BotonesMetodo({
           type="button"
           disabled={disabled}
           onClick={() => onMetodo(metodo.id)}
-          className="rounded-full border border-line px-3 py-1.5 text-xs font-medium hover:border-foreground disabled:opacity-40"
+          className={`rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40 ${
+            metodo.id === "all"
+              ? "bg-accent text-background"
+              : "border border-line hover:border-foreground"
+          }`}
         >
           {metodo.label}
         </button>
@@ -77,7 +74,6 @@ export function ChatPanel({
   onOrden,
   onResolverJson,
   onResolverMatriz,
-  onOrdenTexto,
   onLlenarEnunciado,
 }: Props) {
   const [jsonTexto, setJsonTexto] = useState("");
@@ -128,19 +124,6 @@ export function ChatPanel({
         </section>
       ) : null}
       <div className="border-t border-line bg-card p-3">
-        <div className="mb-2 flex flex-wrap gap-1">
-          {ORDENES.map((orden) => (
-            <button
-              key={orden.texto}
-              type="button"
-              disabled={pending}
-              onClick={() => void onOrdenTexto(orden.texto)}
-              className="rounded-full border border-line px-3 py-1 text-xs text-muted hover:border-foreground hover:text-foreground disabled:opacity-40"
-            >
-              {orden.etiqueta}
-            </button>
-          ))}
-        </div>
         <div className="mb-2 flex gap-1">
           <button
             type="button"
@@ -170,6 +153,14 @@ export function ChatPanel({
               placeholder='{"A":[[2,1],[1,3]],"B":[8,13]}'
               className="max-h-40 w-full resize-none rounded-2xl border border-line bg-background px-3 py-2 font-mono text-xs outline-none"
             />
+            <button
+              type="button"
+              disabled={pending || !jsonTexto.trim()}
+              onClick={() => void onResolverJson(jsonTexto, "all")}
+              className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-background disabled:opacity-40"
+            >
+              Enviar JSON
+            </button>
             <BotonesMetodo
               disabled={pending || !jsonTexto.trim()}
               onMetodo={(metodo) => void onResolverJson(jsonTexto, metodo)}
