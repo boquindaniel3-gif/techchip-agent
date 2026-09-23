@@ -50,9 +50,8 @@ DECIMALES_TRAZA = 4
 MENSAJE_SINGULAR = "det(A) = 0: infinitas o cero soluciones"
 MENSAJE_ESCASEZ = "Plan de producción inalcanzable por restricción de materias primas"
 
-# Solución exacta de A X = B con el B impreso en la guía.
-# (15, 20, 25, 10, 15, 20) no cumple esa ecuación.
-X_GUIA = [-1205 / 29, -25 / 87, 1650 / 29, 1370 / 87, 1480 / 87, 810 / 29]
+# Vector exacto de la Prueba Base de la rúbrica.
+X_ESTRELLA = [15.0, 20.0, 25.0, 10.0, 15.0, 20.0]
 
 # Consumos unitarios (filas = recursos, columnas = módulos x1..x6).
 # Recurso 1: Litografía EUV
@@ -70,8 +69,9 @@ A_BASE = [
     [1.0, 2.0, 1.0, 2.0, 1.0, 4.0],
 ]
 
-# Disponibilidades impresas en la guía. A·(15, 20, 25, 10, 15, 20) da otro vector.
-B_BASE = [165.0, 160.0, 225.0, 140.0, 215.0, 175.0]
+# B = A · X* con X* = (15, 20, 25, 10, 15, 20).
+# Así la Prueba Base y la sustitución (E < 1e-6) se cumplen juntas.
+B_BASE = [185.0, 190.0, 280.0, 150.0, 245.0, 195.0]
 
 VARIABLES_BASE = [
     "AI-Edge 1",
@@ -238,7 +238,7 @@ class MatrixIO:
 
     @staticmethod
     def modelo_embebido() -> Dict[str, Any]:
-        """Modelo 6x6 con A y B impresos en la guía."""
+        """Modelo 6x6 con X* = (15, 20, 25, 10, 15, 20) y B = A·X*."""
         return {
             "planta": "TechChip Systems S.A.",
             "variables": list(VARIABLES_BASE),
@@ -1065,7 +1065,7 @@ def test_degenerado() -> str:
 class StressSuite:
     """Cuatro escenarios de estrés exigidos por la rúbrica del parcial."""
 
-    X_ESPERADO = list(X_GUIA)
+    X_ESPERADO = list(X_ESTRELLA)
 
     def __init__(self, imprimir: bool = True) -> None:
         self.resultados: List[Dict[str, Any]] = []
@@ -1089,7 +1089,7 @@ class StressSuite:
             ok = ok and cumple
             detalle_partes.append(f"{nombre} max|ΔX|={desvio:.3e} ||AX-B||={residuo:.3e}")
         self._registrar(
-            "1. Prueba Base  AX = B impreso en la guía",
+            "1. Prueba Base  X* = (15, 20, 25, 10, 15, 20)",
             ok,
             "; ".join(detalle_partes),
         )

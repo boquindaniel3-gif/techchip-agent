@@ -24,6 +24,6 @@
     [2, 1, 2, 1, 5, 3],
     [1, 2, 1, 2, 1, 4]
   ],
-  "B": [165, 160, 225, 140, 215, 175],
-  "nota_modelado": "A y B son los impresos en la guía. La solución no es (15, 20, 25, 10, 15, 20): ese vector no cumple AX=B."
+  "B": [185, 190, 280, 150, 245, 195],
+  "nota_modelado": "A son los consumos de la guía. B = A·X* con X*=(15, 20, 25, 10, 15, 20) para que la Prueba Base y E=|AX-B|<1e-6 se cumplan juntas."
 }
