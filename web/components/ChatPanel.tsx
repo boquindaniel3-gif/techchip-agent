@@ -22,6 +22,7 @@ type Props = {
   onResolverJson: (texto: string, metodo: Metodo) => Promise<void>;
   onResolverMatriz: (metodo: Metodo) => Promise<void>;
   onLlenarEnunciado: (texto: string) => Promise<void>;
+  onOrdenTexto: (texto: string) => Promise<void>;
 };
 
 export function ChatPanel({
@@ -40,6 +41,7 @@ export function ChatPanel({
   onResolverJson,
   onResolverMatriz,
   onLlenarEnunciado,
+  onOrdenTexto,
 }: Props) {
   const [tema, setTema] = useState<"claro" | "oscuro">("claro");
   const listaRef = useRef<HTMLDivElement>(null);
@@ -115,6 +117,7 @@ export function ChatPanel({
         onResolverJson={onResolverJson}
         onResolverMatriz={onResolverMatriz}
         onLlenarEnunciado={onLlenarEnunciado}
+        onOrdenTexto={onOrdenTexto}
       />
     </div>
   );

@@ -27,7 +27,15 @@ type Props = {
   onResolverJson: (texto: string, metodo: Metodo) => Promise<void>;
   onResolverMatriz: (metodo: Metodo) => Promise<void>;
   onLlenarEnunciado: (texto: string) => Promise<void>;
+  onOrdenTexto: (texto: string) => Promise<void>;
 };
+
+const PRUEBAS = [
+  { etiqueta: "Modelo base", texto: "modelo base" },
+  { etiqueta: "Escasez", texto: "escasez" },
+  { etiqueta: "Degenerado", texto: "degenerado" },
+  { etiqueta: "Estrés", texto: "estrés" },
+];
 
 function BotonesMetodo({
   disabled,
@@ -90,6 +98,7 @@ export function ControlsArea({
   onResolverJson,
   onResolverMatriz,
   onLlenarEnunciado,
+  onOrdenTexto,
 }: Props) {
   const [jsonTexto, setJsonTexto] = useState("");
   const [enunciado, setEnunciado] = useState("");
@@ -99,6 +108,22 @@ export function ControlsArea({
   return (
     <div className="border-t border-line bg-card p-3">
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-neutral-700 dark:bg-neutral-900">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+          Pruebas
+        </p>
+        <div className="mb-3 flex flex-wrap gap-1">
+          {PRUEBAS.map((prueba) => (
+            <button
+              key={prueba.texto}
+              type="button"
+              disabled={pending}
+              onClick={() => void onOrdenTexto(prueba.texto)}
+              className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-white disabled:opacity-40 dark:border-neutral-600 dark:text-slate-200 dark:hover:bg-neutral-800"
+            >
+              {prueba.etiqueta}
+            </button>
+          ))}
+        </div>
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
           Entrada
         </p>
