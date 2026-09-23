@@ -31,7 +31,7 @@ export function Wordmark({ size = 28, className = "" }: { size?: number; classNa
   return (
     <span className={`inline-flex items-center gap-2.5 text-foreground ${className}`}>
       <Logo size={size} />
-      <span className="text-[15px] font-semibold tracking-tight">TechChip Agent</span>
+      <span className="text-[15px] font-semibold tracking-tight">Resolx Agent</span>
     </span>
   );
 }

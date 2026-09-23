@@ -10,7 +10,7 @@ COPY requirements.txt /app/requirements.txt
 COPY api/requirements.txt /app/api/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt -r /app/api/requirements.txt
 
-COPY techchip_agent.py /app/techchip_agent.py
+COPY resolx_agent.py /app/resolx_agent.py
 COPY data /app/data
 COPY api /app/api
 

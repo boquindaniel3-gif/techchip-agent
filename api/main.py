@@ -1,4 +1,4 @@
-"""API FastAPI: envuelve TechChipAgent y valida JWT de Supabase."""
+"""API FastAPI: envuelve ResolxAgent y valida JWT de Supabase."""
 
 from __future__ import annotations
 
@@ -18,13 +18,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from techchip_agent import (  # noqa: E402
+from resolx_agent import (  # noqa: E402
     N_MAX,
     N_MIN,
     MatrixIO,
     SingularSystemError,
     StressSuite,
-    TechChipAgent,
+    ResolxAgent,
     analizar_familia,
     normalizar_modelo,
 )
@@ -207,8 +207,8 @@ def _payload_resolucion(resultado: Dict[str, Any], user_id: str, tipo: str) -> D
 
 
 app = FastAPI(
-    title="TechChip Agent API",
-    description="Resolución AX=B con Gauss, Gauss-Jordan e inversa para TechChip Systems S.A.",
+    title="Resolx Agent API",
+    description="Resolución AX=B con Gauss, Gauss-Jordan e inversa — Resolx Agent.",
     version="1.0.0",
 )
 
@@ -225,7 +225,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    return {"status": "ok", "servicio": "techchip-agent"}
+    return {"status": "ok", "servicio": "resolx-agent"}
 
 
 @app.get("/api/modelo-base")
@@ -256,7 +256,7 @@ def resolver(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    agente = TechChipAgent(modelo=modelo)
+    agente = ResolxAgent(modelo=modelo)
     try:
         resultado = agente.resolver(method=body.method, verbose=False, trazar=False)
     except ValueError as error:

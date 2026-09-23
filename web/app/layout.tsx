@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TechChip Agent",
+  title: "Resolx Agent",
   description:
-    "Agente de balance logístico AX = B para TechChip Systems S.A. Gauss, Gauss-Jordan e inversa, de 2×2 a 12×12.",
+    "Resolx Agent — balance logístico AX = B. Gauss, Gauss-Jordan e inversa, de 2×2 a 12×12.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

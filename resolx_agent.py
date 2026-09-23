@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Agente autónomo de balance logístico y resolución matricial
-para TechChip Systems S.A.
+Resolx Agent: agente autónomo de balance logístico y resolución matricial.
 
 Resuelve el sistema AX = B de asignación de recursos (n líneas de módulos
 frente a n recursos críticos, 2 ≤ n ≤ 12; el modelo de la guía es 6×6)
@@ -16,12 +15,12 @@ NumPy se emplea exclusivamente para el prediagnóstico de resolubilidad
 ni np.linalg.inv.
 
 Uso:
-    python techchip_agent.py
-    python techchip_agent.py --json data/modelo_base.json
-    python techchip_agent.py --interactive
-    python techchip_agent.py --stress
-    python techchip_agent.py --audit
-    python techchip_agent.py --method gauss
+    python resolx_agent.py
+    python resolx_agent.py --json data/modelo_base.json
+    python resolx_agent.py --interactive
+    python resolx_agent.py --stress
+    python resolx_agent.py --audit
+    python resolx_agent.py --method gauss
 """
 
 from __future__ import annotations
@@ -870,10 +869,9 @@ class OperationsInterpreter:
 # ===========================================================================
 
 
-class TechChipAgent:
+class ResolxAgent:
     """
-    Agente autónomo para el balance logístico y procesamiento matricial
-    de TechChip Systems S.A.
+    Resolx Agent: orquesta el balance logístico y el procesamiento matricial.
 
     Orquesta: carga -> validación dimensional/espectral -> resolución
     multimétodo -> verificación AX - B -> semántica de planta.
@@ -928,7 +926,7 @@ class TechChipAgent:
             diagnostico["mensaje"] = MENSAJE_SINGULAR
         if verbose:
             print("\n" + "#" * 72)
-            print(f"AGENTE TECHCHIP  |  {self.planta}")
+            print(f"AGENTE RESOLX  |  {self.planta}")
             print("#" * 72)
             print(f"det(A)            = {diagnostico['determinante']:.10f}")
             print(f"rank(A)           = {diagnostico['rango_A']}")
@@ -1034,7 +1032,7 @@ def test_escasez() -> str:
     """# NUEVO: inyecta B_3 = 100 y exige la alerta de escasez."""
     modelo = MatrixIO.modelo_embebido()
     modelo["B"][2] = 100.0
-    resultado = TechChipAgent(modelo=modelo).resolver(method="gauss-jordan", verbose=False)
+    resultado = ResolxAgent(modelo=modelo).resolver(method="gauss-jordan", verbose=False)
     mensaje = (resultado.get("semantica") or {}).get("mensaje")
     soluciones = resultado.get("soluciones") or {}
     hay_negativo = any(valor < -EPSILON_CONSISTENCIA for vector in soluciones.values() for valor in vector)
@@ -1051,7 +1049,7 @@ def test_degenerado() -> str:
     modelo = MatrixIO.modelo_embebido()
     modelo["A"][5] = [2.0 * c for c in modelo["A"][0]]
     try:
-        resultado = TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+        resultado = ResolxAgent(modelo=modelo).resolver(method="all", verbose=False)
     except SingularSystemError as error:
         mensaje = (error.diagnostico or {}).get("mensaje") or str(error)
         if mensaje != MENSAJE_SINGULAR:
@@ -1080,7 +1078,7 @@ class StressSuite:
             print(f"[{estado}] {nombre}: {detalle}")
 
     def prueba_base(self) -> None:
-        agente = TechChipAgent()
+        agente = ResolxAgent()
         resultado = agente.resolver(method="all", verbose=False)
         ok = True
         detalle_partes = []
@@ -1096,7 +1094,7 @@ class StressSuite:
         )
 
     def prueba_sustitucion(self) -> None:
-        agente = TechChipAgent()
+        agente = ResolxAgent()
         resultado = agente.resolver(method="all", verbose=False)
         normas = {n: r["norma_euclidea"] for n, r in resultado["residuos"].items()}
         ok = all(v < EPSILON_RESIDUO for v in normas.values())
@@ -1124,7 +1122,7 @@ class StressSuite:
     def ejecutar_detalle(self) -> Dict[str, Any]:
         if self.imprimir:
             print("\n" + "#" * 72)
-            print("SUITE DE PRUEBAS DE ESTRÉS — TechChip Systems S.A.")
+            print("SUITE DE PRUEBAS DE ESTRÉS — Resolx Agent")
             print("#" * 72)
         self.prueba_base()
         self.prueba_sustitucion()
@@ -1153,7 +1151,7 @@ class AuditSuite(StressSuite):
             "B": [8.0 * escala, 13.0 * escala],
         }
         try:
-            resultado = TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+            resultado = ResolxAgent(modelo=modelo).resolver(method="all", verbose=False)
         except SingularSystemError as error:
             self._registrar("A. 2×2 a escala 1e-6", False, f"Abortó: {error}")
             return
@@ -1168,7 +1166,7 @@ class AuditSuite(StressSuite):
         )
 
     def prueba_planta_8x8(self) -> None:
-        resultado = TechChipAgent(modelo=MatrixIO.modelo_8x8()).resolver(
+        resultado = ResolxAgent(modelo=MatrixIO.modelo_8x8()).resolver(
             method="all", verbose=False
         )
         desvio = max(abs(resultado["x"][i] - X_ESTRELLA_8[i]) for i in range(8))
@@ -1181,7 +1179,7 @@ class AuditSuite(StressSuite):
 
     def prueba_json_minusculas(self) -> None:
         modelo = normalizar_modelo({"a": [[1, 0], [0, 1]], "b": [3, 4]})
-        resultado = TechChipAgent(modelo=modelo).resolver(method="gauss", verbose=False)
+        resultado = ResolxAgent(modelo=modelo).resolver(method="gauss", verbose=False)
         ok = abs(resultado["x"][0] - 3) < 1e-12 and abs(resultado["x"][1] - 4) < 1e-12
         self._registrar(
             "C. JSON claves a/b",
@@ -1191,7 +1189,7 @@ class AuditSuite(StressSuite):
 
     def prueba_b_columna(self) -> None:
         modelo = normalizar_modelo({"A": [[1, 0], [0, 1]], "B": [[5], [7]]})
-        resultado = TechChipAgent(modelo=modelo).resolver(method="gauss-jordan", verbose=False)
+        resultado = ResolxAgent(modelo=modelo).resolver(method="gauss-jordan", verbose=False)
         ok = abs(resultado["x"][0] - 5) < 1e-12 and abs(resultado["x"][1] - 7) < 1e-12
         self._registrar(
             "D. B como columna",
@@ -1204,7 +1202,7 @@ class AuditSuite(StressSuite):
         modelo["A"][5] = [2.0 * c for c in modelo["A"][0]]
         modelo["B"][5] = 2.0 * modelo["B"][0]
         try:
-            TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+            ResolxAgent(modelo=modelo).resolver(method="all", verbose=False)
             self._registrar(
                 "E. Compatible indeterminado  F6=2F1 y B6=2B1",
                 False,
@@ -1247,7 +1245,7 @@ class AuditSuite(StressSuite):
                 "recursos": ["foo", "bar"],
             }
         )
-        resultado = TechChipAgent(modelo=modelo).resolver(method="all", verbose=False)
+        resultado = ResolxAgent(modelo=modelo).resolver(method="all", verbose=False)
         ok = (
             abs(resultado["x"][0] - 3.0) < 1e-12
             and abs(resultado["x"][1] - 4.0) < 1e-12
@@ -1263,7 +1261,7 @@ class AuditSuite(StressSuite):
     def ejecutar_detalle(self) -> Dict[str, Any]:
         if self.imprimir:
             print("\n" + "#" * 72)
-            print("AUDITORÍA NUMÉRICA E INGEST JSON — TechChip Agent")
+            print("AUDITORÍA NUMÉRICA E INGEST JSON — Resolx Agent")
             print("#" * 72)
         self.prueba_base()
         self.prueba_sustitucion()
@@ -1296,7 +1294,7 @@ class AuditSuite(StressSuite):
 def _construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Agente autónomo TechChip Systems S.A. — resolución paso a paso "
+            "Resolx Agent — resolución paso a paso "
             "de AX = B (Gauss, Gauss-Jordan, inversa)."
         )
     )
@@ -1346,9 +1344,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if args.interactive:
             modelo = MatrixIO.cargar_consola()
-            agente = TechChipAgent(modelo=modelo)
+            agente = ResolxAgent(modelo=modelo)
         else:
-            agente = TechChipAgent(json_path=args.json_path)
+            agente = ResolxAgent(json_path=args.json_path)
         agente.resolver(method=args.method, verbose=True, trazar=not args.quiet)
         return 0
     except SingularSystemError as error:

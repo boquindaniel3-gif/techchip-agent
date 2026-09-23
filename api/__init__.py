@@ -1,1 +1,1 @@
-"""FastAPI TechChip Agent."""
+"""FastAPI Resolx Agent."""

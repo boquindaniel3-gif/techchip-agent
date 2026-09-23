@@ -1,4 +1,4 @@
-"""Configuración de la API TechChip (JWT Supabase + CORS)."""
+"""Configuración de la API Resolx Agent (JWT Supabase + CORS)."""
 
 from functools import lru_cache
 from typing import List

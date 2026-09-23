@@ -8,7 +8,7 @@ export function AuthScene({ children }: { children: ReactNode }) {
         <section className="hidden flex-col justify-center px-14 py-16 lg:flex">
           <Logo size={72} />
           <h1 className="mt-10 max-w-md text-5xl font-semibold tracking-tight text-foreground">
-            El agente de balance de planta.
+            Resolx Agent, el agente de balance de planta.
           </h1>
           <p className="mt-5 max-w-sm text-[17px] leading-7 text-muted">
             Asigna presupuesto de recursos con álgebra lineal real: Gauss,

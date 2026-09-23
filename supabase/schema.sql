@@ -1,4 +1,4 @@
--- TechChip Systems S.A. — historial de resoluciones
+-- Resolx Agent — historial de resoluciones
 -- Pegar en Supabase → SQL Editor y ejecutar.
 
 create table if not exists public.resoluciones (

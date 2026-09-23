@@ -59,7 +59,7 @@ export function AuthForm({ modo }: Props) {
         <Logo size={48} />
       </div>
       <p className="mt-4 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-muted lg:mt-0 lg:text-left">
-        TechChip Systems S.A.
+        Resolx Agent
       </p>
       <h1 className="mt-3 text-center text-[28px] font-semibold tracking-tight lg:text-left">
         {modo === "login" ? "Iniciar sesión" : "Crear cuenta"}

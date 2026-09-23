@@ -1,6 +1,6 @@
-# TechChip Agent — CLI + web + API
+# Resolx Agent — CLI + web + API
 
-Agente de balance logístico **AX = B** para TechChip Systems S.A.
+Agente de balance logístico **AX = B**.
 Gauss, Gauss-Jordan e inversa en Python (sin `np.linalg.solve`), expuesto como CLI y como API Docker. El frontend es Next.js (Vercel) con autenticación e historial en **Supabase**.
 
 ## Por qué Supabase (y no Clerk)
@@ -28,8 +28,8 @@ npm run dev
 CLI del parcial:
 
 ```bash
-.venv/bin/python techchip_agent.py --stress
-.venv/bin/python techchip_agent.py --json data/modelo_base.json
+.venv/bin/python resolx_agent.py --stress
+.venv/bin/python resolx_agent.py --json data/modelo_base.json
 ```
 
 ## Supabase
@@ -56,8 +56,8 @@ Copia [`.env.example`](.env.example) y `web/.env.example`.
 
 ```bash
 git add .
-git commit -m "Agente TechChip CLI, API Docker y web Next.js"
-git remote add origin git@github.com:TU_USUARIO/techchip-agent.git
+git commit -m "Agente Resolx CLI, API Docker y web Next.js"
+git remote add origin git@github.com:TU_USUARIO/resolx-agent.git
 git push -u origin master
 ```
 
@@ -84,4 +84,4 @@ Vercel **no** ejecuta el contenedor Python. El Docker vive en Railway (o Fly.io)
 - `POST /api/estres`
 - `GET /api/historial`
 
-PyCharm: abre la raíz del repo. El backend es `techchip_agent.py` + `api/`. La carpeta `web/` es el frontend.
+PyCharm: abre la raíz del repo. El backend es `resolx_agent.py` + `api/`. La carpeta `web/` es el frontend.
