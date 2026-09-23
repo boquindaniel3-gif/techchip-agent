@@ -289,7 +289,7 @@ def resolver(
         }
 
     respuesta = _json_safe(resultado)
-    if body.persistir and not settings.auth_disabled and settings.supabase_url:
+    if body.persistir and usuario.get("_raw") and not settings.auth_disabled and settings.supabase_url:
         fila = insertar_resolucion(
             settings,
             usuario.get("_raw"),
@@ -307,7 +307,7 @@ def estres(
 ) -> Dict[str, Any]:
     suite = StressSuite(imprimir=False)
     resumen = _json_safe(suite.ejecutar_detalle())
-    if body.persistir and not settings.auth_disabled and settings.supabase_url:
+    if body.persistir and usuario.get("_raw") and not settings.auth_disabled and settings.supabase_url:
         modelo = MatrixIO.modelo_embebido()
         fila = insertar_resolucion(
             settings,
@@ -341,7 +341,7 @@ def historial(
     usuario: Dict[str, Any] = Depends(usuario_actual),
     settings: Settings = Depends(get_settings),
 ) -> List[Dict[str, Any]]:
-    if settings.auth_disabled or not settings.supabase_url:
+    if settings.auth_disabled or not settings.supabase_url or not usuario.get("_raw"):
         return []
     return listar_resoluciones(settings, usuario.get("_raw"), usuario["sub"])
 
