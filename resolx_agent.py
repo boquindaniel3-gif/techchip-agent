@@ -50,8 +50,9 @@ DECIMALES_TRAZA = 4
 MENSAJE_SINGULAR = "det(A) = 0: infinitas o cero soluciones"
 MENSAJE_ESCASEZ = "Plan de producción inalcanzable por restricción de materias primas"
 
-# Vector exacto exigido por la Prueba Base de la guía del parcial.
-X_ESTRELLA = [15.0, 20.0, 25.0, 10.0, 15.0, 20.0]
+# Solución exacta de A X = B con el B impreso en la guía.
+# (15, 20, 25, 10, 15, 20) no cumple esa ecuación.
+X_GUIA = [-1205 / 29, -25 / 87, 1650 / 29, 1370 / 87, 1480 / 87, 810 / 29]
 
 # Consumos unitarios (filas = recursos, columnas = módulos x1..x6).
 # Recurso 1: Litografía EUV
@@ -69,9 +70,8 @@ A_BASE = [
     [1.0, 2.0, 1.0, 2.0, 1.0, 4.0],
 ]
 
-# B = A · X*  (capacidades consistentes con el vector de operaciones exacto).
-# El B impreso en la guía no satisface A X* = B; se documenta en el JSON.
-B_BASE = [185.0, 190.0, 280.0, 150.0, 245.0, 195.0]
+# Disponibilidades impresas en la guía. A·(15, 20, 25, 10, 15, 20) da otro vector.
+B_BASE = [165.0, 160.0, 225.0, 140.0, 215.0, 175.0]
 
 VARIABLES_BASE = [
     "AI-Edge 1",
@@ -238,7 +238,7 @@ class MatrixIO:
 
     @staticmethod
     def modelo_embebido() -> Dict[str, Any]:
-        """Modelo 6x6 de planta calibrado para X* = (15, 20, 25, 10, 15, 20)."""
+        """Modelo 6x6 con A y B impresos en la guía."""
         return {
             "planta": "TechChip Systems S.A.",
             "variables": list(VARIABLES_BASE),
@@ -1065,7 +1065,7 @@ def test_degenerado() -> str:
 class StressSuite:
     """Cuatro escenarios de estrés exigidos por la rúbrica del parcial."""
 
-    X_ESPERADO = list(X_ESTRELLA)
+    X_ESPERADO = list(X_GUIA)
 
     def __init__(self, imprimir: bool = True) -> None:
         self.resultados: List[Dict[str, Any]] = []
@@ -1084,11 +1084,12 @@ class StressSuite:
         detalle_partes = []
         for nombre, x in resultado["soluciones"].items():
             desvio = max(abs(x[i] - self.X_ESPERADO[i]) for i in range(6))
-            cumple = desvio < EPSILON_RESIDUO
+            residuo = resultado["residuos"][nombre]["norma_euclidea"]
+            cumple = desvio < EPSILON_RESIDUO and residuo < EPSILON_RESIDUO
             ok = ok and cumple
-            detalle_partes.append(f"{nombre} max|ΔX|={desvio:.3e}")
+            detalle_partes.append(f"{nombre} max|ΔX|={desvio:.3e} ||AX-B||={residuo:.3e}")
         self._registrar(
-            "1. Prueba Base  X* = (15, 20, 25, 10, 15, 20)",
+            "1. Prueba Base  AX = B impreso en la guía",
             ok,
             "; ".join(detalle_partes),
         )

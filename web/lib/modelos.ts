@@ -28,7 +28,7 @@ export const A_BASE: number[][] = [
   [1, 2, 1, 2, 1, 4],
 ];
 
-export const B_BASE: number[] = [185, 190, 280, 150, 245, 195];
+export const B_BASE: number[] = [165, 160, 225, 140, 215, 175];
 
 export const VARIABLES_8 = [...VARIABLES, "AI-Drone Swarm", "AI-Satellite Link"];
 

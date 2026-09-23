@@ -24,6 +24,6 @@
     [2, 1, 2, 1, 5, 3],
     [1, 2, 1, 2, 1, 4]
   ],
-  "B": [185, 190, 280, 150, 245, 195],
-  "nota_modelado": "A contiene los consumos unitarios de la guía. B se calibró como A·X* con X*=(15, 20, 25, 10, 15, 20) para garantizar consistencia AX=B y la Prueba Base."
+  "B": [165, 160, 225, 140, 215, 175],
+  "nota_modelado": "A y B son los impresos en la guía. La solución no es (15, 20, 25, 10, 15, 20): ese vector no cumple AX=B."
 }
