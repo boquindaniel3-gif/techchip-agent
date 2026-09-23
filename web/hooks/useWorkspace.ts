@@ -13,11 +13,13 @@ import {
 } from "@/lib/modelos";
 import type {
   ChatMessage,
+  ChatVariant,
   EstresResult,
   Metodo,
   ResolucionRow,
   ResolverResult,
 } from "@/lib/types";
+import { varianteResultado } from "@/lib/varianteChat";
 
 function nuevoId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -33,27 +35,36 @@ const SALUDO: ChatMessage = {
   id: "saludo",
   role: "assistant",
   text: TEXTO_AYUDA,
+  variant: "system",
 };
+
+type TextoChat = { text: string; variant: ChatVariant };
 
 function previewB(B: number[]): string {
   const muestra = B.slice(0, 4).map((v) => v.toFixed(2)).join(", ");
   return `B=[${muestra}${B.length > 4 ? ", …" : ""}]`;
 }
 
-function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number, B?: number[]): string {
+function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number, B?: number[]): TextoChat {
   const sistema = B ? ` Sistema enviado: n=${n}, ${previewB(B)}.` : "";
   const clasificacion = data.diagnostico?.clasificacion;
   const escasez =
     data.semantica?.factible === false && (data.semantica.negativos?.length ?? 0) > 0;
+  const variant = varianteResultado(data);
   if (clasificacion === "incompatible" || clasificacion === "indeterminado") {
-    return data.diagnostico?.mensaje ?? data.semantica?.mensaje ?? "det(A) = 0: infinitas o cero soluciones";
+    return {
+      text: data.diagnostico?.mensaje ?? data.semantica?.mensaje ?? "det(A) = 0: infinitas o cero soluciones",
+      variant,
+    };
   }
   if (escasez || !data.x) {
-    return (
-      data.semantica?.mensaje ??
-      data.diagnostico?.mensaje ??
-      "Sistema singular o abortado."
-    );
+    return {
+      text:
+        data.semantica?.mensaje ??
+        data.diagnostico?.mensaje ??
+        "Sistema singular o abortado.",
+      variant,
+    };
   }
   const elegido = data.diagnostico?.metodo_elegido;
   const residuoElegido = elegido ? data.residuos?.[elegido]?.norma_euclidea : undefined;
@@ -68,14 +79,16 @@ function redactarRespuesta(data: ResolverResult, metodo: Metodo, n: number, B?: 
   const residuoTxt =
     typeof residuo === "number" ? `  ||AX−B||₂ = ${residuo.toExponential(3)}` : "";
   const relTxt = typeof rel === "number" ? `  rel = ${rel.toExponential(3)}` : "";
-  return (
-    `Listo (${elegido ?? metodo}, n=${n}). ` +
-    `X = [${data.x.map((v) => v.toFixed(6)).join(", ")}]` +
-    residuoTxt +
-    relTxt +
-    aviso +
-    sistema
-  );
+  return {
+    text:
+      `Listo (${elegido ?? metodo}, n=${n}). ` +
+      `X = [${data.x.map((v) => v.toFixed(6)).join(", ")}]` +
+      residuoTxt +
+      relTxt +
+      aviso +
+      sistema,
+    variant,
+  };
 }
 
 export function useWorkspace() {
@@ -177,10 +190,17 @@ export function useWorkspace() {
           inicio >= 0 && fin > inicio ? cuerpo.slice(inicio, fin + 1) : cuerpo;
         const modelo = parsearModeloJson(JSON.parse(json));
         cargarMatrices(modelo);
-        await resolver(metodo, modelo.A, modelo.B, modelo.variables, modelo.recursos);
+        const respuesta = await resolver(metodo, modelo.A, modelo.B, modelo.variables, modelo.recursos);
+        setMensajes((prev) => [
+          ...prev,
+          { id: nuevoId(), role: "assistant", text: respuesta.text, variant: respuesta.variant },
+        ]);
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "JSON inválido.";
-        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: mensaje }]);
+        setMensajes((prev) => [
+          ...prev,
+          { id: nuevoId(), role: "assistant", text: mensaje, variant: "error" },
+        ]);
       }
     },
     [cargarMatrices, resolver]
@@ -189,10 +209,17 @@ export function useWorkspace() {
   const resolverMatriz = useCallback(
     async (metodo: Metodo) => {
       try {
-        await resolver(metodo, A, B, variables, recursos);
+        const respuesta = await resolver(metodo, A, B, variables, recursos);
+        setMensajes((prev) => [
+          ...prev,
+          { id: nuevoId(), role: "assistant", text: respuesta.text, variant: respuesta.variant },
+        ]);
       } catch (err) {
         const mensaje = err instanceof Error ? err.message : "No se pudo resolver la matriz.";
-        setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: mensaje }]);
+        setMensajes((prev) => [
+          ...prev,
+          { id: nuevoId(), role: "assistant", text: mensaje, variant: "error" },
+        ]);
       }
     },
     [A, B, variables, recursos, resolver]
@@ -259,7 +286,10 @@ export function useWorkspace() {
       });
       setEstres(data);
       await cargarHistorial();
-      return `Suite de estrés: ${data.aprobadas}/${data.total} pruebas satisfactorias.`;
+      return {
+        text: `Suite de estrés: ${data.aprobadas}/${data.total} pruebas satisfactorias.`,
+        variant: data.exitoso ? "success" : "error",
+      } satisfies TextoChat;
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : "No se pudo ejecutar la suite.";
       setError(mensaje);
@@ -273,7 +303,10 @@ export function useWorkspace() {
     (siguiente: number) => {
       const modelo = redimensionarSistema(A, B, variables, recursos, siguiente);
       aplicarModelo(modelo);
-      return `Orden n = ${siguiente}. Completé o recorté la matriz. Resuélvela desde la pestaña Matriz.`;
+      return {
+        text: `Orden n = ${siguiente}. Completé o recorté la matriz. Resuélvela desde la pestaña Matriz.`,
+        variant: "system",
+      } satisfies TextoChat;
     },
     [A, B, variables, recursos, aplicarModelo]
   );
@@ -282,16 +315,16 @@ export function useWorkspace() {
     async (texto: string) => {
       const limpio = texto.trim();
       if (!limpio) return;
-      setMensajes((prev) => [...prev, { id: nuevoId(), role: "user", text: limpio }]);
+      setMensajes((prev) => [...prev, { id: nuevoId(), role: "user", text: limpio, variant: "user" }]);
       const intent = interpretarMensaje(limpio);
-      let respuesta: string;
+      let respuesta: TextoChat;
       try {
         switch (intent.type) {
           case "ayuda":
-            respuesta = TEXTO_AYUDA;
+            respuesta = { text: TEXTO_AYUDA, variant: "system" };
             break;
           case "desconocido":
-            respuesta = `No reconocí esa orden. ${TEXTO_AYUDA}`;
+            respuesta = { text: `No reconocí esa orden. ${TEXTO_AYUDA}`, variant: "system" };
             break;
           case "modelo-base": {
             const m = modeloBase();
@@ -322,8 +355,10 @@ export function useWorkspace() {
             break;
           }
           case "resolver":
-            respuesta =
-              "Elige la pestaña JSON o Matriz y pulsa resolver. «Resuelve» usa solo la pestaña abierta, no la otra entrada.";
+            respuesta = {
+              text: "Elige la pestaña JSON o Matriz y pulsa resolver. «Resuelve» usa solo la pestaña abierta, no la otra entrada.",
+              variant: "system",
+            };
             break;
           case "escasez": {
             if (B.length < 3) throw new Error("Hace falta n ≥ 3 para el escenario de escasez (B₃).");
@@ -346,18 +381,24 @@ export function useWorkspace() {
             break;
           case "historial":
             await cargarHistorial();
-            respuesta = "Historial recargado a la izquierda.";
+            respuesta = { text: "Historial recargado a la izquierda.", variant: "system" };
             break;
           case "redimensionar":
             respuesta = cambiarOrden(intent.n);
             break;
           default:
-            respuesta = TEXTO_AYUDA;
+            respuesta = { text: TEXTO_AYUDA, variant: "system" };
         }
       } catch (err) {
-        respuesta = err instanceof Error ? err.message : "No pude completar esa orden.";
+        respuesta = {
+          text: err instanceof Error ? err.message : "No pude completar esa orden.",
+          variant: "error",
+        };
       }
-      setMensajes((prev) => [...prev, { id: nuevoId(), role: "assistant", text: respuesta }]);
+      setMensajes((prev) => [
+        ...prev,
+        { id: nuevoId(), role: "assistant", text: respuesta.text, variant: respuesta.variant },
+      ]);
     },
     [
       A,

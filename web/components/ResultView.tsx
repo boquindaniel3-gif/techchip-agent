@@ -1,7 +1,9 @@
 "use client";
 
+import { CLASES_VARIANTE } from "@/components/ChatMessage";
 import { MatrixStepViewer, parsearTraza } from "@/components/MatrixStepViewer";
 import type { ResolverResult } from "@/lib/types";
+import { varianteResultado } from "@/lib/varianteChat";
 
 export function ResultView({ resultado }: { resultado: ResolverResult }) {
   const diag = resultado.diagnostico ?? {};
@@ -10,11 +12,6 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
   const clasificacion = diag.clasificacion ?? (resultado.abortado ? "singular" : undefined);
   const incompatible = clasificacion === "incompatible";
   const indeterminado = clasificacion === "indeterminado";
-  const alerta =
-    resultado.abortado ||
-    semantica?.factible === false ||
-    diag.numericamente_inestable === true ||
-    incompatible;
   const escasez = semantica?.factible === false && (semantica?.negativos?.length ?? 0) > 0;
   const balance = escasez ? [] : (semantica?.balance_recursos ?? []);
   const cuellos = semantica?.cuellos_botella ?? [];
@@ -64,7 +61,7 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
             </dd>
           </div>
         </dl>
-        <p className={`mt-3 text-sm ${alerta ? "text-danger" : "text-muted"}`}>
+        <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${CLASES_VARIANTE[varianteResultado(resultado)]}`}>
           {semantica?.mensaje ?? diag.mensaje ?? "Sin diagnóstico."}
         </p>
       </div>

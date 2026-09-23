@@ -103,8 +103,11 @@ export type ResolucionRow = {
   created_at: string;
 };
 
+export type ChatVariant = "success" | "error" | "system" | "user";
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  variant: ChatVariant;
 };

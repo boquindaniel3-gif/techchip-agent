@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ChatMessage as BurbujaChat } from "@/components/ChatMessage";
 import { MatrixEditor } from "@/components/MatrixEditor";
+import { PrimaryActionBtn } from "@/components/PrimaryActionBtn";
 import { ResultView } from "@/components/ResultView";
 import { N_MAX, N_MIN } from "@/lib/modelos";
 import type { ChatMessage, Metodo, ResolverResult } from "@/lib/types";
@@ -40,21 +42,27 @@ function BotonesMetodo({
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {METODOS.map((metodo) => (
-        <button
-          key={metodo.id}
-          type="button"
-          disabled={disabled}
-          onClick={() => onMetodo(metodo.id)}
-          className={`rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40 ${
-            metodo.id === "all"
-              ? "bg-accent text-background"
-              : "border border-line hover:border-foreground"
-          }`}
-        >
-          {metodo.label}
-        </button>
-      ))}
+      {METODOS.map((metodo) =>
+        metodo.id === "all" ? (
+          <button
+            key={metodo.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onMetodo(metodo.id)}
+            className="rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-background disabled:opacity-40"
+          >
+            {metodo.label}
+          </button>
+        ) : (
+          <PrimaryActionBtn
+            key={metodo.id}
+            disabled={disabled}
+            onClick={() => onMetodo(metodo.id)}
+          >
+            {metodo.label}
+          </PrimaryActionBtn>
+        )
+      )}
     </div>
   );
 }
@@ -99,16 +107,9 @@ export function ChatPanel({
       </div>
       <div ref={listaRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {mensajes.map((msg) => (
-          <div
-            key={msg.id}
-            className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-5 ${
-              msg.role === "user"
-                ? "ml-auto bg-accent text-background"
-                : "bg-card text-foreground"
-            }`}
-          >
+          <BurbujaChat key={msg.id} variant={msg.variant}>
             {msg.text}
-          </div>
+          </BurbujaChat>
         ))}
         {pending ? <p className="text-xs text-muted">Trabajando…</p> : null}
       </div>
@@ -188,7 +189,7 @@ export function ChatPanel({
                 value={enunciado}
                 onChange={(e) => setEnunciado(e.target.value)}
                 rows={3}
-                placeholder="Pega el enunciado. El asistente solo llena A y B; no resuelve."
+                placeholder="Pega el enunciado. Llena A y B del orden que traiga, de 2×2 a 12×12, y no resuelve."
                 className="max-h-32 w-full resize-none rounded-2xl border border-line bg-background px-3 py-2 text-xs outline-none"
               />
               <button

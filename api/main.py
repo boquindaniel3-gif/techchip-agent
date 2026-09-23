@@ -12,13 +12,15 @@ from typing import Any, Dict, List, Literal, Optional
 import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from techchip_agent import (  # noqa: E402
+    N_MAX,
+    N_MIN,
     MatrixIO,
     SingularSystemError,
     StressSuite,
@@ -47,13 +49,13 @@ class EstresBody(BaseModel):
     persistir: bool = True
 
 
-N_EXTRACCION = 6
-
 PROMPT_EXTRACCION = (
-    "Eres un asistente de llenado para un balance AX=B de 6 recursos por 6 módulos. "
+    "Eres un asistente de llenado para un balance AX=B. "
     "No resuelvas el sistema. No calcules X, el determinante ni el rango. "
     "Devuelve únicamente un objeto JSON, sin markdown ni texto alrededor, con esta forma: "
-    '{"matriz_A": [[seis números], ... seis filas], "vector_B": [seis números]}. '
+    '{"matriz_A": [[números], ...], "vector_B": [números]}. '
+    "El orden n es el del enunciado: matriz_A es n×n y vector_B tiene n entradas. "
+    f"n debe estar entre {N_MIN} y {N_MAX}. No lo fuerces a 6 si el enunciado trae otro orden. "
     "matriz_A[i][j] es el consumo del recurso i+1 en el módulo j+1. "
     "vector_B[i] es la disponibilidad del recurso i+1. "
     "Usa solo cifras del enunciado. Si falta un coeficiente, escribe 0.0. "
@@ -74,16 +76,16 @@ class ParseTextBody(BaseModel):
 
 
 class MatrixExtractionResponse(BaseModel):
-    """Coeficientes extraídos. Siempre 6×6 y B de longitud 6. No incluye X."""
+    """Coeficientes extraídos. A cuadrada y B del mismo orden, entre 2 y 12. No incluye X."""
 
     matriz_A: List[List[float]]
     vector_B: List[float]
 
     @field_validator("matriz_A")
     @classmethod
-    def _matriz_6x6(cls, valor: List[List[float]]) -> List[List[float]]:
-        if len(valor) != N_EXTRACCION or any(len(fila) != N_EXTRACCION for fila in valor):
-            raise ValueError("matriz_A debe ser 6×6.")
+    def _celdas_finitas(cls, valor: List[List[float]]) -> List[List[float]]:
+        if not valor:
+            raise ValueError("matriz_A está vacía.")
         for fila in valor:
             for celda in fila:
                 if not math.isfinite(celda):
@@ -92,12 +94,23 @@ class MatrixExtractionResponse(BaseModel):
 
     @field_validator("vector_B")
     @classmethod
-    def _vector_6(cls, valor: List[float]) -> List[float]:
-        if len(valor) != N_EXTRACCION:
-            raise ValueError("vector_B debe tener 6 entradas.")
+    def _vector_finito(cls, valor: List[float]) -> List[float]:
         if any(not math.isfinite(celda) for celda in valor):
             raise ValueError("vector_B contiene un número no finito.")
         return valor
+
+    @model_validator(mode="after")
+    def _cuadrada(self) -> "MatrixExtractionResponse":
+        n = len(self.matriz_A)
+        if any(len(fila) != n for fila in self.matriz_A):
+            raise ValueError("matriz_A debe ser cuadrada: mismo número de filas y de columnas.")
+        if n < N_MIN or n > N_MAX:
+            raise ValueError(
+                f"El orden n = {n} queda fuera del rango admitido ({N_MIN} a {N_MAX})."
+            )
+        if len(self.vector_B) != n:
+            raise ValueError(f"vector_B debe tener {n} entradas.")
+        return self
 
 
 def _objeto_json(texto: str) -> Dict[str, Any]:
@@ -114,17 +127,33 @@ def _objeto_json(texto: str) -> Dict[str, Any]:
     return datos
 
 
+def _detalle_rechazo(respuesta: httpx.Response) -> str:
+    base = "El proveedor de lenguaje rechazó la solicitud."
+    try:
+        error = respuesta.json().get("error") or {}
+    except ValueError:
+        return f"{base} (HTTP {respuesta.status_code})"
+    codigo = str(error.get("code") or error.get("type") or "").strip()
+    mensaje = str(error.get("message") or "").replace("\n", " ").strip()
+    extra = " ".join(parte for parte in (codigo, mensaje) if parte)[:280]
+    if extra:
+        return f"{base} {extra}"
+    return f"{base} (HTTP {respuesta.status_code})"
+
+
 def _pedir_extraccion(settings: Settings, texto: str) -> str:
-    if not settings.llm_api_key:
+    clave = settings.llm_api_key.strip()
+    if not clave:
         raise HTTPException(status_code=503, detail="Falta LLM_API_KEY en el servidor.")
-    url = settings.llm_base_url.rstrip("/") + "/chat/completions"
+    url = settings.llm_base_url.strip().rstrip("/") + "/chat/completions"
+    modelo = settings.llm_model.strip() or "gpt-4o-mini"
     try:
         with httpx.Client(timeout=40.0) as cliente:
             respuesta = cliente.post(
                 url,
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                headers={"Authorization": f"Bearer {clave}"},
                 json={
-                    "model": settings.llm_model,
+                    "model": modelo,
                     "temperature": 0,
                     "messages": [
                         {"role": "system", "content": PROMPT_EXTRACCION},
@@ -137,9 +166,9 @@ def _pedir_extraccion(settings: Settings, texto: str) -> str:
             status_code=502, detail="El proveedor de lenguaje no respondió."
         ) from error
     if respuesta.status_code >= 400:
-        raise HTTPException(
-            status_code=502, detail="El proveedor de lenguaje rechazó la solicitud."
-        )
+        detalle = _detalle_rechazo(respuesta)
+        print(f"parse-text proveedor HTTP {respuesta.status_code}: {detalle}", flush=True)
+        raise HTTPException(status_code=502, detail=detalle)
     try:
         contenido = respuesta.json()["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError, ValueError) as error:
@@ -327,8 +356,22 @@ def parse_text(
     try:
         datos = _objeto_json(crudo)
         return MatrixExtractionResponse.model_validate(datos)
+    except ValidationError as error:
+        motivo = "; ".join(
+            str(item.get("msg", "")).removeprefix("Value error, ") for item in error.errors()
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"El enunciado no produjo una matriz cuadrada válida "
+                f"(n entre {N_MIN} y {N_MAX}). {motivo}"
+            ),
+        ) from error
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(
             status_code=422,
-            detail=f"El enunciado no produjo una matriz 6×6 válida. {error}",
+            detail=(
+                f"El enunciado no produjo una matriz cuadrada válida "
+                f"(n entre {N_MIN} y {N_MAX}). {error}"
+            ),
         ) from error
