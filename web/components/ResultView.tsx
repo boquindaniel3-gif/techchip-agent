@@ -61,7 +61,7 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
             </dd>
           </div>
         </dl>
-        <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${CLASES_VARIANTE[varianteResultado(resultado)]}`}>
+        <p className={`mt-3 rounded-lg px-5 py-4 text-sm ${CLASES_VARIANTE[varianteResultado(resultado)]}`}>
           {semantica?.mensaje ?? diag.mensaje ?? "Sin diagnóstico."}
         </p>
       </div>

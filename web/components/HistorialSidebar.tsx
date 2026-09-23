@@ -12,12 +12,12 @@ type Props = {
 export function HistorialSidebar({ filas, seleccionId, onSelect, onNueva }: Props) {
   return (
     <aside className="flex max-h-44 shrink-0 flex-col border-b border-line bg-card lg:max-h-none lg:w-[260px] lg:border-b-0 lg:border-r">
-      <div className="flex items-center justify-between gap-2 px-3 py-3">
+      <div className="px-3 py-3">
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">Historial</p>
         <button
           type="button"
           onClick={onNueva}
-          className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-background"
+          className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
         >
           Nueva
         </button>
