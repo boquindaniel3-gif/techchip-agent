@@ -1,7 +1,7 @@
 "use client";
 
 import { CLASES_VARIANTE } from "@/components/ChatMessage";
-import { MatrixStepViewer, parsearTraza } from "@/components/MatrixStepViewer";
+import { MatrixStepViewer, parsearTraza, presentarTraza } from "@/components/MatrixStepViewer";
 import type { ResolverResult } from "@/lib/types";
 import { varianteResultado } from "@/lib/varianteChat";
 
@@ -196,28 +196,68 @@ export function ResultView({ resultado }: { resultado: ResolverResult }) {
             Traza analítica de filas
           </h2>
           <div className="max-h-[28rem] space-y-3 overflow-auto">
-            {parsearTraza(resultado.traza).map((paso, indice) =>
-              paso.tipo === "separador" ? (
-                <p
-                  key={`sep-${indice}`}
-                  className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted"
-                >
-                  {paso.texto}
+            {presentarTraza(parsearTraza(resultado.traza)).map((vista, indice) => {
+              if (vista.tipo === "separador") {
+                return (
+                  <p
+                    key={`sep-${indice}`}
+                    className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted"
+                  >
+                    {vista.texto}
+                  </p>
+                );
+              }
+              if (vista.tipo === "operacion") {
+                return (
+                  <div key={`op-${indice}`} className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+                      Paso {vista.numero}
+                    </p>
+                    <MatrixStepViewer
+                      matrix={vista.matrix}
+                      augmentedVector={vista.augmentedVector}
+                      operationText={vista.formula}
+                      highlightRowIndex={vista.highlightRowIndex}
+                    />
+                  </div>
+                );
+              }
+              if (vista.tipo === "matriz") {
+                return (
+                  <div key={`mat-${indice}`} className="space-y-1">
+                    {vista.titulo ? (
+                      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+                        {vista.titulo}
+                      </p>
+                    ) : null}
+                    <MatrixStepViewer
+                      matrix={vista.matrix}
+                      augmentedVector={vista.augmentedVector}
+                      operationText=""
+                    />
+                  </div>
+                );
+              }
+              if (vista.tipo === "sustitucion") {
+                return (
+                  <div key={`sub-${indice}`} className="space-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+                      Sustitución hacia atrás
+                    </p>
+                    <ol className="space-y-0.5 font-mono text-[12px] leading-5 text-foreground">
+                      {vista.lineas.map((linea) => (
+                        <li key={linea}>{linea}</li>
+                      ))}
+                    </ol>
+                  </div>
+                );
+              }
+              return (
+                <p key={`nota-${indice}`} className="text-[11px] leading-5 text-muted">
+                  {vista.texto}
                 </p>
-              ) : paso.matrix ? (
-                <MatrixStepViewer
-                  key={`paso-${indice}`}
-                  matrix={paso.matrix}
-                  augmentedVector={paso.augmentedVector}
-                  operationText={paso.operationText}
-                  highlightRowIndex={paso.highlightRowIndex}
-                />
-              ) : (
-                <p key={`txt-${indice}`} className="font-mono text-[11px] leading-5 text-muted">
-                  {paso.operationText}
-                </p>
-              )
-            )}
+              );
+            })}
           </div>
         </div>
       ) : null}

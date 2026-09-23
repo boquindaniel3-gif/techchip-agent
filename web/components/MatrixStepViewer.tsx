@@ -32,9 +32,11 @@ export function MatrixStepViewer({
 
   return (
     <article className="overflow-hidden rounded-2xl bg-[#1d1d1f] text-[#f5f5f7]">
-      <p className="border-b border-white/10 px-3 py-2 font-mono text-[11px] leading-5 text-white/80">
-        {operationText}
-      </p>
+      {operationText ? (
+        <p className="border-b border-white/10 px-3 py-2 font-mono text-[11px] leading-5 text-white/80">
+          {operationText}
+        </p>
+      ) : null}
       {matrix.length ? (
         <div className="overflow-x-auto px-2 py-2">
           <div
@@ -136,4 +138,84 @@ export function parsearTraza(traza: string[]): PasoTraza[] {
 
   volcarTexto();
   return pasos;
+}
+
+export type VistaTraza =
+  | { tipo: "separador"; texto: string }
+  | { tipo: "titulo"; texto: string }
+  | { tipo: "nota"; texto: string }
+  | {
+      tipo: "operacion";
+      numero: number;
+      formula: string;
+      matrix: number[][];
+      augmentedVector?: number[];
+      highlightRowIndex?: number;
+    }
+  | {
+      tipo: "matriz";
+      titulo: string;
+      matrix: number[][];
+      augmentedVector?: number[];
+    }
+  | { tipo: "sustitucion"; lineas: string[] };
+
+function formulaOperacion(texto: string): string | null {
+  const limpio = texto.replace(/^Operación analítica:\s*/i, "").trim();
+  if (!/F_\d+/.test(limpio) || !/(<->|<-)/.test(limpio)) return null;
+  return limpio.replace(/<->/g, "↔").replace(/<-/g, "←").replace(/\s*\*\s*/g, " · ");
+}
+
+function tituloSeccion(texto: string): string {
+  return texto.replace(/\s+/g, " ").replace(/:\s*$/, "").trim();
+}
+
+function tituloMatriz(texto: string): string {
+  return tituloSeccion(texto).replace(/\.?\s*Sustitución hacia atrás\.?$/i, "").trim();
+}
+
+function lineasXi(texto: string): string[] {
+  return texto.match(/x_\d+\s*=\s*[-+]?(?:\d+\.\d+|\d+)/g) ?? [];
+}
+
+export function presentarTraza(pasos: PasoTraza[]): VistaTraza[] {
+  const vistas: VistaTraza[] = [];
+  let numero = 0;
+  for (const paso of pasos) {
+    if (paso.tipo === "separador") {
+      numero = 0;
+      vistas.push({ tipo: "separador", texto: paso.texto });
+      continue;
+    }
+    const formula = formulaOperacion(paso.operationText);
+    if (paso.matrix) {
+      if (formula) {
+        numero += 1;
+        vistas.push({
+          tipo: "operacion",
+          numero,
+          formula,
+          matrix: paso.matrix,
+          augmentedVector: paso.augmentedVector,
+          highlightRowIndex: paso.highlightRowIndex,
+        });
+      } else {
+        vistas.push({
+          tipo: "matriz",
+          titulo: tituloMatriz(paso.operationText),
+          matrix: paso.matrix,
+          augmentedVector: paso.augmentedVector,
+        });
+      }
+      continue;
+    }
+    const lineas = lineasXi(paso.operationText);
+    const resto = paso.operationText
+      .replace(/x_\d+\s*=\s*[-+]?(?:\d+\.\d+|\d+)/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (resto) vistas.push({ tipo: "nota", texto: tituloSeccion(resto) });
+    if (lineas.length) vistas.push({ tipo: "sustitucion", lineas });
+  }
+  return vistas;
 }
